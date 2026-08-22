@@ -276,69 +276,6 @@ export default function DashboardPage() {
           <p className="text-muted-foreground mt-1">管理你的每日待办事项</p>
         </div>
 
-        {/* 迫在眉睫 */}
-        {urgentTasks.length > 0 && (
-          <section className="bg-destructive/5 border border-destructive/20 rounded-xl p-5">
-            <div className="flex items-center gap-2 mb-4">
-              <span className="text-xl">🔥</span>
-              <h2 className="text-lg font-semibold text-foreground">迫在眉睫</h2>
-              <span className="text-xs bg-destructive/10 text-destructive px-2 py-0.5 rounded-full">
-                {urgentTasks.length}
-              </span>
-            </div>
-            
-            <div className="space-y-3">
-              {urgentTasks.map(task => (
-                <div
-                  key={task.id}
-                  className="bg-white rounded-lg p-4 border border-destructive/10 hover:shadow-md transition-shadow"
-                >
-                  <div className="flex items-start gap-3">
-                    <button
-                      onClick={() => toggleTaskComplete(task.id)}
-                      className={`mt-0.5 w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition-colors ${
-                        task.is_completed
-                          ? 'bg-destructive border-destructive text-white'
-                          : 'border-destructive/40 hover:border-destructive'
-                      }`}
-                    >
-                      {task.is_completed && (
-                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                        </svg>
-                      )}
-                    </button>
-                    <div className="flex-1 min-w-0">
-                      <h3 className={`font-medium ${task.is_completed ? 'line-through text-muted-foreground' : 'text-foreground'}`}>
-                        {task.title}
-                      </h3>
-                      <div className="flex items-center gap-3 mt-1.5 flex-wrap">
-                        <span className="text-xs text-destructive font-medium flex items-center gap-1">
-                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                          </svg>
-                          {countdowns[task.id] || '计算中...'}
-                        </span>
-                        <span className={`text-xs px-2 py-0.5 rounded-full text-white ${getTypeColor(task.task_type)}`}>
-                          {taskTypeLabels[task.task_type as keyof typeof taskTypeLabels]}
-                        </span>
-                      </div>
-                    </div>
-                    <button
-                      onClick={() => handleDelete(task.id)}
-                      className="p-1.5 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded transition-colors flex-shrink-0"
-                    >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                      </svg>
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </section>
-        )}
-
         <div className="grid lg:grid-cols-3 gap-6">
           {/* 左侧：最近安排 */}
           <div className="lg:col-span-2 space-y-4">
@@ -540,8 +477,72 @@ export default function DashboardPage() {
             )}
           </div>
 
-          {/* 右侧：本月规划 */}
+          {/* 右侧：迫在眉睫 + 本月规划 */}
           <div className="space-y-4">
+            {/* 迫在眉睫 - 醒目卡片 */}
+            <div className="relative overflow-hidden rounded-xl bg-gradient-to-br from-red-500 via-red-600 to-rose-700 text-white p-5 shadow-lg shadow-red-500/20">
+              {/* 装饰 */}
+              <div className="absolute -top-6 -right-6 w-24 h-24 rounded-full bg-white/10 blur-xl" />
+              <div className="absolute -bottom-4 -left-4 w-20 h-20 rounded-full bg-white/5 blur-xl" />
+              
+              <div className="relative">
+                <div className="flex items-center gap-2 mb-4">
+                  <span className="text-2xl animate-pulse-subtle">🔥</span>
+                  <h2 className="text-lg font-bold">迫在眉睫</h2>
+                  <span className="text-xs bg-white/20 px-2 py-0.5 rounded-full font-medium">
+                    {urgentTasks.length > 0 ? urgentTasks.length : 0}
+                  </span>
+                </div>
+                
+                {!hasLoaded || isLoading ? (
+                  <div className="py-8 text-center text-white/70 text-sm">加载中...</div>
+                ) : urgentTasks.length === 0 ? (
+                  <div className="py-6 text-center">
+                    <div className="text-4xl mb-2">✅</div>
+                    <p className="text-sm text-white/80">暂无紧急任务</p>
+                    <p className="text-xs text-white/60 mt-1">保持这样的节奏！</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {urgentTasks.slice(0, 3).map((task, idx) => {
+                      const isExpired = countdowns[task.id] === '已过期';
+                      return (
+                        <div
+                          key={task.id}
+                          className="bg-white/15 backdrop-blur-sm rounded-lg p-3 border border-white/20 hover:bg-white/20 transition-colors"
+                        >
+                          <div className="flex items-start gap-2">
+                            <div className="flex-shrink-0 w-6 h-6 rounded-full bg-white/20 flex items-center justify-center text-xs font-bold">
+                              {idx + 1}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <h4 className="font-semibold text-sm truncate">{task.title}</h4>
+                              <div className="mt-1.5">
+                                {isExpired ? (
+                                  <span className="text-xs bg-yellow-400 text-yellow-900 px-2 py-0.5 rounded-full font-semibold">
+                                    ⚠️ 已过期
+                                  </span>
+                                ) : (
+                                  <div className="flex items-center gap-1 text-xs">
+                                    <svg className="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                    </svg>
+                                    <span className="font-mono font-bold text-white tracking-tight">
+                                      {countdowns[task.id] || '计算中...'}
+                                    </span>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+
             <h2 className="text-lg font-semibold text-foreground">本月规划</h2>
             
             <div className="bg-card border border-border rounded-xl p-4">

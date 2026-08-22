@@ -94,19 +94,31 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     
     // 自定义背景
     if (theme.style === 'custom' && theme.customBackground) {
+      // 背景图片层
       let bgEl = document.getElementById('custom-bg-layer');
       if (!bgEl) {
         bgEl = document.createElement('div');
         bgEl.id = 'custom-bg-layer';
         bgEl.className = 'custom-bg';
-        document.body.appendChild(bgEl);
+        document.body.insertBefore(bgEl, document.body.firstChild);
       }
       bgEl.style.backgroundImage = `url(${theme.customBackground})`;
       bgEl.style.setProperty('--custom-bg-blur', `${theme.customBlur}px`);
-      bgEl.style.setProperty('--custom-bg-overlay', String(theme.customOverlay));
+      
+      // 遮罩层
+      let overlayEl = document.getElementById('custom-bg-overlay');
+      if (!overlayEl) {
+        overlayEl = document.createElement('div');
+        overlayEl.id = 'custom-bg-overlay';
+        overlayEl.className = 'custom-bg-overlay';
+        bgEl.after(overlayEl);
+      }
+      overlayEl.style.setProperty('--custom-bg-overlay', String(theme.customOverlay));
     } else {
       const bgEl = document.getElementById('custom-bg-layer');
+      const overlayEl = document.getElementById('custom-bg-overlay');
       if (bgEl) bgEl.remove();
+      if (overlayEl) overlayEl.remove();
     }
   }, [theme]);
 
