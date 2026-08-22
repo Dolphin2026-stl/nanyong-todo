@@ -14,11 +14,11 @@ interface ParsedTask {
   end_time?: string;
 }
 
-const systemPrompt = `你是一个专业的待办事项解析助手。你的任务是从用户输入的文本中提取结构化的待办任务信息。
+const systemPrompt = `你是一个专业的待办事项与课程表解析助手。你的任务是从用户输入的文本（可能是课程表、活动通知、作业布置等）中提取结构化的待办任务信息。
 
-请仔细分析文本内容，提取以下字段：
-1. title: 任务标题（简洁明了）
-2. description: 任务描述（可选，补充细节）
+请仔细分析文本内容，为每一条日程提取以下字段：
+1. title: 任务标题（必须提取具体的名称，如"高等数学"、"大学英语"、"数据结构作业"、"线性代数考试"等，禁止用"课程"、"8:00-9:40 课程"这类笼统描述作为标题）
+2. description: 任务描述（可选，如教室地点、章节范围、补充细节等）
 3. task_type: 任务类型，可选值：course（课程）、homework（作业）、exam（考试）、activity（活动）、personal（个人）
 4. priority: 优先级，可选值：low（低）、medium（中）、high（高）、urgent（紧急）
 5. importance: 重要程度，可选值：normal（普通）、important（重要）、very_important（非常重要）
@@ -26,27 +26,39 @@ const systemPrompt = `你是一个专业的待办事项解析助手。你的任�
 7. end_time: 截止时间（ISO格式，如未明确提到则不填）
 
 判断规则：
-- 作业/习题/论文 → homework
-- 课程/上课/讲座 → course
-- 考试/测验/期中/期末 → exam
-- 活动/比赛/会议/聚会 → activity
+- 作业/习题/论文/提交 → homework
+- 课程/上课/讲座/实验课 → course
+- 考试/测验/期中/期末/考核 → exam
+- 活动/比赛/会议/聚会/讲座 → activity
 - 个人/其他 → personal
 
-时间判断：
-- 如果文本提到"今天"、"明天"等相对时间，请根据当前时间推算为具体日期
-- 当前时间由用户提供
-- 时间默认为当天 23:59，如果明确提到具体时间则使用具体时间
+【时间换算规则 - 非常重要】
+- 用户输入中"周一、周二、星期三、周五"等星期词，必须根据用户提供的"当前时间"换算成最近一个未来的对应日期（如果今天是周四，提到"周五"就是明天，提到"周一"就是下周一；如果今天恰好是该星期，则取今天）。
+- 用户输入中"今天"→当前日期，"明天"→当前日期+1天，"后天"→当前日期+2天，"下周X"→下一周的对应星期。
+- 时间格式：如果文本是"8:00-9:40"或"8:00~9:40"或"第1-2节"，则 start_time 为该日 08:00（如果给了具体时间则用具体时间），end_time 为该日结束时间。
+- 如果只给了开始时间没给结束时间，课程默认时长 1 小时 40 分钟（100分钟）作为 end_time；其他类型默认 1 小时。
+- 所有时间必须输出带 +08:00 时区的 ISO 格式，例如 "2026-08-24T08:00:00+08:00"。
+- 禁止把不同的星期几全部解析成同一天。
 
-请只返回一个 JSON 对象数组，不要有任何额外的解释文字。如果能提取出多个任务就返回多个，只能提取出一个就返回单个元素的数组。
+请只返回一个 JSON 对象数组，不要有任何额外的解释文字。如果能提取出多个任务就返回多个，只能提取出一个就返回单个元素的数组。任务按时间先后排序。
 
 JSON 格式示例：
 [{
-  "title": "高等数学作业",
-  "description": "第三章课后习题 1-10",
-  "task_type": "homework",
+  "title": "高等数学",
+  "description": "三教301",
+  "task_type": "course",
+  "priority": "medium",
+  "importance": "normal",
+  "start_time": "2026-08-24T08:00:00+08:00",
+  "end_time": "2026-08-24T09:40:00+08:00"
+}, {
+  "title": "线性代数考试",
+  "description": "一教101",
+  "task_type": "exam",
   "priority": "high",
-  "importance": "important",
-  "end_time": "2024-01-15T23:59:00+08:00"
+  "importance": "very_important",
+  "start_time": "2026-08-28T09:00:00+08:00",
+  "end_time": "2026-08-28T11:00:00+08:00"
 }]`;
 
 export async function POST(request: NextRequest) {
@@ -164,7 +176,39 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: '未能从文本中提取出有效任务，请尝试更详细的描述' }, { status: 400 });
     }
 
-    return NextResponse.json({ tasks: validTasks });
+    // 后端兜底校正：清理标题中的笼统描述（如"8:00-9:40 课程"→"课程"），并校正时间
+    const cleanedTasks = validTasks.map(task => {
+      const cleaned = { ...task };
+      // 标题清理：去掉时间前缀和"课程"占位
+      cleaned.title = cleaned.title
+        .replace(/^\d{1,2}[:：]\d{2}\s*[-~至]\s*\d{1,2}[:：]\d{2}\s*/g, '')
+        .replace(/^\d{1,2}[:：]\d{2}\s*/g, '')
+        .trim();
+      if (!cleaned.title || cleaned.title === '课程' || /^[课]?程$/.test(cleaned.title)) {
+        cleaned.title = task.description && task.description.length > 2 ? task.description.split(/[\s,，、]/)[0] : '待办事项';
+      }
+      // 时间校正：确保 start < end，且时间有效
+      if (cleaned.start_time) {
+        const s = new Date(cleaned.start_time);
+        if (isNaN(s.getTime())) cleaned.start_time = undefined;
+      }
+      if (cleaned.end_time) {
+        const e = new Date(cleaned.end_time);
+        if (isNaN(e.getTime())) cleaned.end_time = undefined;
+      }
+      if (cleaned.start_time && cleaned.end_time) {
+        const s = new Date(cleaned.start_time).getTime();
+        const e = new Date(cleaned.end_time).getTime();
+        if (e <= s) {
+          // 结束时间不晚于开始时间：如果是课程默认加100分钟，否则加60分钟
+          const defaultMin = cleaned.task_type === 'course' ? 100 : 60;
+          cleaned.end_time = new Date(s + defaultMin * 60 * 1000).toISOString();
+        }
+      }
+      return cleaned;
+    });
+
+    return NextResponse.json({ tasks: cleanedTasks });
   } catch (err: unknown) {
     console.error('AI Parse error:', err);
     let message = '解析失败，请重试';
