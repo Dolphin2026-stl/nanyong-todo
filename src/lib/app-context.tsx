@@ -1,0 +1,242 @@
+'use client';
+
+import { createContext, useContext, useState, useCallback, ReactNode } from 'react';
+
+export type TaskType = 'course' | 'homework' | 'exam' | 'activity' | 'personal';
+export type TaskPriority = 'low' | 'medium' | 'high' | 'urgent';
+export type TaskImportance = 'normal' | 'important' | 'very_important';
+
+export interface Task {
+  id: string;
+  title: string;
+  description?: string;
+  task_type: TaskType;
+  priority: TaskPriority;
+  importance: TaskImportance;
+  start_time?: string;
+  end_time?: string;
+  is_completed: boolean;
+  completed_at?: string;
+  tags?: string[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Tag {
+  id: string;
+  name: string;
+  color?: string;
+}
+
+export interface UserSettings {
+  urgentDays: number;
+  urgentImportance: TaskImportance;
+  aiApiKey?: string;
+  aiBaseUrl?: string;
+  aiModel?: string;
+}
+
+const defaultSettings: UserSettings = {
+  urgentDays: 7,
+  urgentImportance: 'important',
+};
+
+interface AppContextType {
+  tasks: Task[];
+  tags: Tag[];
+  settings: UserSettings;
+  isLoading: boolean;
+  refreshTasks: () => Promise<void>;
+  refreshTags: () => Promise<void>;
+  addTask: (task: Omit<Task, 'id' | 'created_at' | 'updated_at' | 'is_completed'>) => Promise<Task>;
+  updateTask: (id: string, updates: Partial<Task>) => Promise<void>;
+  deleteTask: (id: string) => Promise<void>;
+  toggleTaskComplete: (id: string) => Promise<void>;
+  addTag: (name: string, color?: string) => Promise<Tag>;
+  updateTag: (id: string, updates: { name?: string; color?: string }) => Promise<void>;
+  deleteTag: (id: string) => Promise<void>;
+  updateSettings: (settings: Partial<UserSettings>) => void;
+  exportCalendar: () => Promise<void>;
+}
+
+const AppContext = createContext<AppContextType | null>(null);
+
+const SETTINGS_KEY = 'nanyong-todo-settings';
+
+export function AppProvider({ children }: { children: ReactNode }) {
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [tags, setTags] = useState<Tag[]>([]);
+  const [settings, setSettings] = useState<UserSettings>(defaultSettings);
+  const [isLoading, setIsLoading] = useState(true);
+
+  // 从 localStorage 加载设置
+  const loadSettings = useCallback(() => {
+    try {
+      const saved = localStorage.getItem(SETTINGS_KEY);
+      if (saved) {
+        setSettings({ ...defaultSettings, ...JSON.parse(saved) });
+      }
+    } catch {
+      // 忽略
+    }
+  }, []);
+
+  const updateSettings = useCallback((newSettings: Partial<UserSettings>) => {
+    const updated = { ...settings, ...newSettings };
+    setSettings(updated);
+    try {
+      localStorage.setItem(SETTINGS_KEY, JSON.stringify(updated));
+    } catch {
+      // 忽略
+    }
+  }, [settings]);
+
+  const refreshTasks = useCallback(async () => {
+    try {
+      const res = await fetch('/api/tasks');
+      if (res.ok) {
+        const data = await res.json();
+        setTasks(data.tasks || []);
+      }
+    } catch {
+      // 忽略
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  const refreshTags = useCallback(async () => {
+    try {
+      const res = await fetch('/api/tags');
+      if (res.ok) {
+        const data = await res.json();
+        setTags(data.tags || []);
+      }
+    } catch {
+      // 忽略
+    }
+  }, []);
+
+  const addTask = useCallback(async (task: Omit<Task, 'id' | 'created_at' | 'updated_at' | 'is_completed'>): Promise<Task> => {
+    const res = await fetch('/api/tasks', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(task),
+    });
+    if (!res.ok) throw new Error('创建任务失败');
+    const data = await res.json();
+    setTasks(prev => [data.task, ...prev]);
+    return data.task;
+  }, []);
+
+  const updateTask = useCallback(async (id: string, updates: Partial<Task>) => {
+    const res = await fetch(`/api/tasks/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updates),
+    });
+    if (!res.ok) throw new Error('更新任务失败');
+    const data = await res.json();
+    setTasks(prev => prev.map(t => t.id === id ? data.task : t));
+  }, []);
+
+  const deleteTask = useCallback(async (id: string) => {
+    const res = await fetch(`/api/tasks/${id}`, {
+      method: 'DELETE',
+    });
+    if (!res.ok) throw new Error('删除任务失败');
+    setTasks(prev => prev.filter(t => t.id !== id));
+  }, []);
+
+  const toggleTaskComplete = useCallback(async (id: string) => {
+    const task = tasks.find(t => t.id === id);
+    if (!task) return;
+    await updateTask(id, { is_completed: !task.is_completed });
+  }, [tasks, updateTask]);
+
+  const addTag = useCallback(async (name: string, color?: string): Promise<Tag> => {
+    const res = await fetch('/api/tags', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, color }),
+    });
+    if (!res.ok) throw new Error('创建标签失败');
+    const data = await res.json();
+    setTags(prev => [...prev, data.tag]);
+    return data.tag;
+  }, []);
+
+  const deleteTag = useCallback(async (id: string) => {
+    const res = await fetch(`/api/tags/${id}`, {
+      method: 'DELETE',
+    });
+    if (!res.ok) throw new Error('删除标签失败');
+    setTags(prev => prev.filter(t => t.id !== id));
+  }, []);
+
+  const updateTag = useCallback(async (id: string, updates: { name?: string; color?: string }) => {
+    const res = await fetch(`/api/tags/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updates),
+    });
+    if (!res.ok) throw new Error('更新标签失败');
+    const data = await res.json();
+    setTags(prev => prev.map(t => t.id === id ? data.tag : t));
+  }, []);
+
+  const exportCalendar = useCallback(async () => {
+    // 由调用方自己实现 fetch 逻辑
+  }, []);
+
+  return (
+    <AppContext.Provider value={{
+      tasks,
+      tags,
+      settings,
+      isLoading,
+      refreshTasks,
+      refreshTags,
+      addTask,
+      updateTask,
+      deleteTask,
+      toggleTaskComplete,
+      addTag,
+      updateTag,
+      deleteTag,
+      updateSettings,
+      exportCalendar,
+    }}>
+      {children}
+    </AppContext.Provider>
+  );
+}
+
+export function useApp() {
+  const context = useContext(AppContext);
+  if (!context) {
+    throw new Error('useApp 必须在 AppProvider 中使用');
+  }
+  return context;
+}
+
+export const taskTypeLabels: Record<TaskType, string> = {
+  course: '课程',
+  homework: '作业',
+  exam: '考试',
+  activity: '活动',
+  personal: '个人',
+};
+
+export const taskPriorityLabels: Record<TaskPriority, string> = {
+  low: '低',
+  medium: '中',
+  high: '高',
+  urgent: '紧急',
+};
+
+export const taskImportanceLabels: Record<TaskImportance, string> = {
+  normal: '普通',
+  important: '重要',
+  very_important: '非常重要',
+};
