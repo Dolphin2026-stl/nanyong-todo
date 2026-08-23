@@ -4,6 +4,23 @@ import { LLMClient, Config, HeaderUtils } from 'coze-coding-dev-sdk';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
+interface RawCourse {
+  title: string;
+  description?: string;
+  task_type?: string;
+  priority?: string;
+  importance?: string;
+  // 课程结构化字段（AI 只返回这些，周次由后端展开）
+  weekday?: number | string;
+  start_section?: number;
+  end_section?: number;
+  weeks?: string;
+  location?: string;
+  // 一次性任务字段
+  start_time?: string;
+  end_time?: string;
+}
+
 interface ParsedTask {
   title: string;
   description?: string;
@@ -16,14 +33,12 @@ interface ParsedTask {
 
 const systemPrompt = `你是一个专业的待办事项与大学课程表解析助手。你的任务是从用户输入的文本（可能是教务系统课程表、活动通知、作业布置等）中提取结构化的待办任务信息。
 
-请仔细分析文本内容，为每一条日程提取以下字段：
-1. title: 任务标题（必须提取具体的课程/任务名称，如"高等数学"、"数据结构与算法"、"概率论与数理统计"等，禁止用"课程"、"8:00-9:40 课程"这类笼统描述作为标题）
-2. description: 任务描述（补充细节，如教室地点、教师姓名、课程QQ、考核方式等，格式如"教师：王浩宇；地点：苏教B201"）
+请仔细分析文本内容，为每一条日程输出以下字段：
+1. title: 任务标题（必须提取具体的课程/任务名称，如"数据结构与算法"、"概率论与数理统计"等，禁止用"课程"、"8:00-9:40 课程"这类笼统描述作为标题）
+2. description: 任务描述（补充细节，如教师姓名、课程QQ、考核方式等）
 3. task_type: 任务类型，可选值：course（课程）、homework（作业）、exam（考试）、activity（活动）、personal（个人）
 4. priority: 优先级，可选值：low（低）、medium（中）、high（高）、urgent（紧急）
 5. importance: 重要程度，可选值：normal（普通）、important（重要）、very_important（非常重要）
-6. start_time: 开始时间（ISO格式）
-7. end_time: 截止时间（ISO格式）
 
 判断规则：
 - 作业/习题/论文/提交 → homework
@@ -32,70 +47,145 @@ const systemPrompt = `你是一个专业的待办事项与大学课程表解析�
 - 活动/比赛/会议/聚会/讲座 → activity
 - 个人/其他 → personal
 
-【大学标准课时表（节次 → 时间）】
-第1-2节: 08:00-09:40
-第3-4节: 10:00-11:40
-第5-6节: 14:00-15:40
-第7-8节: 16:00-17:40
-第9-10节: 19:00-20:40
-第11-12节: 20:50-22:30
-如果时间段跨多个节次（如"5-7节"），start_time 取第一节开始时间（14:00），end_time 取最后一节结束时间（17:40）。
+【课程表解析规则 - 极其重要】
+当文本是课程表时（包含"周X"、"第X-Y节"、"X周"等信息），每条上课时间输出为一个对象，并使用以下结构化字段，**不要展开周次**：
+- weekday: 星期几，用数字 0-6 表示（周一=0、周二=1、周三=2、周四=3、周五=4、周六=5、周日=6）
+- start_section: 开始节次（数字，如第7-8节则 start_section=7）
+- end_section: 结束节次（数字，如第7-8节则 end_section=8）
+- weeks: 周次表达式，原样保留，如 "1-18"、"2,6,10,14"、"1-17(单)"、"1-17(双)"
+- location: 上课地点（如"苏教B201"、"南雍-西209"）
+- 课程的时间描述放在 title 和 location/weekday 等字段中，不要写进 description（description 只放教师、QQ、考核方式等额外信息）
 
-【教务系统课程表格式解析 - 非常重要】
-课程表常见的三种格式：
-1. "周一 7-8节 2周,6周,10周,14周 苏教B201" —— 周一，第7-8节，第2/6/10/14周上课，地点苏教B201
-2. "周二 5-7节 1-18周 苏教B203" —— 周二，第5-7节，第1到18周每周上课，地点苏教B203
-3. "周四 3-4节 1-18周 苏教A207,周四 3-4节 1-18周 苏教A207" —— 同一门课可能有多条时间（逗号分隔），每条都要生成一个任务
-4. "自由时间 2-18周 自由地点" —— 表示自由学习时间，跳过不生成任务
-5. "周五 3-4节 1-17周(单) 苏教B201" —— "(单)"表示单周上课（1,3,5...17），"(双)"表示双周上课（2,4,6...）
+课程表常见格式示例：
+1. "周一 7-8节 2周,6周,10周,14周 苏教B201 形势与政策" → weekday=0, start_section=7, end_section=8, weeks="2,6,10,14", location="苏教B201", title="形势与政策"
+2. "周二 5-7节 1-18周 苏教B203 习近平新时代中国特色社会主义思想概论" → weekday=1, start_section=5, end_section=7, weeks="1-18", location="苏教B203"
+3. "周四 3-4节 1-18周 苏教A207"（同一门课有多个时间段，逗号分隔）→ 每个时间段单独输出一个对象
+4. "自由时间 2-18周 自由地点" → 跳过，不输出
+5. "周五 3-4节 1-17周(单) 苏教B201" → weeks="1-17(单)"
 
-【周次换算规则 - 极其重要】
-- 用户会提供"开学日期"（第1周的周一日期）和学期总周数。
-- "第N周"换算：第N周的周X日期 = 开学日期的周一 + (N-1)*7天 + (X-1)天，其中周一=0、周二=1、周三=2、周四=3、周五=4、周六=5、周日=6。
-- 例：开学日期 2026-08-24（周一），则：
-  - 第1周周一 = 2026-08-24
-  - 第1周周二 = 2026-08-25
-  - 第2周周一 = 2026-08-31
-  - 第2周周四 = 2026-09-03
-- 对"1-18周"展开：生成第1周到第18周共18个任务（每周一条）。
-- 对"2周,6周,10周,14周"：生成第2/6/10/14周共4个任务。
-- 对"1-17周(单)"：生成第1,3,5,7,9,11,13,15,17周共9个任务。
-- 对"1-17周(双)"：生成第2,4,6,8,10,12,14,16周共8个任务。
-- 禁止把不同周次、不同星期的课程都解析成同一天！
+【一次性任务规则】
+考试、作业、活动等一次性任务直接输出：
+- start_time: 开始时间（ISO格式，带+08:00时区）
+- end_time: 截止时间（ISO格式）
+- 如果文本提到"今天"、"明天"或具体日期，换算成具体日期；提到"第N周"的考试，根据用户提供的开学日期（第1周周一）推算。
 
 【输出要求】
 - 只返回一个 JSON 对象数组，不要有任何额外的解释文字。
-- 任务按 start_time 先后排序。
-- 同一门课有多个时间段的，生成多条记录。
-- 所有时间必须输出带 +08:00 时区的 ISO 格式，例如 "2026-08-24T08:00:00+08:00"。
+- 课程类任务按上述结构化字段输出（不展开周次，不填 start_time/end_time）。
+- 一次性任务填 start_time/end_time。
+- 同一门课有多个时间段的，输出多条记录。
 
 JSON 格式示例：
 [{
   "title": "数据结构与算法",
-  "description": "教师：单彩峰,王贝贝；地点：苏教A207",
+  "description": "教师：单彩峰,王贝贝",
   "task_type": "course",
   "priority": "medium",
   "importance": "important",
-  "start_time": "2026-08-25T10:00:00+08:00",
-  "end_time": "2026-08-25T11:40:00+08:00"
+  "weekday": 1,
+  "start_section": 3,
+  "end_section": 4,
+  "weeks": "1-18",
+  "location": "苏教A207"
 }, {
-  "title": "数据结构与算法",
-  "description": "教师：单彩峰,王贝贝；地点：苏教A207",
-  "task_type": "course",
-  "priority": "medium",
-  "importance": "important",
-  "start_time": "2026-08-27T10:00:00+08:00",
-  "end_time": "2026-08-27T11:40:00+08:00"
+  "title": "线性代数期中考试",
+  "description": "一教101",
+  "task_type": "exam",
+  "priority": "urgent",
+  "importance": "very_important",
+  "start_time": "2026-10-15T09:00:00+08:00",
+  "end_time": "2026-10-15T11:00:00+08:00"
 }]`;
+
+/** 大学课时表：节次段 → 起止时间 */
+function sectionTime(section: number): { start: string; end: string } {
+  if (section <= 2) return { start: '08:00', end: '09:40' };
+  if (section <= 4) return { start: '10:00', end: '11:40' };
+  if (section <= 6) return { start: '14:00', end: '15:40' };
+  if (section <= 8) return { start: '16:00', end: '17:40' };
+  if (section <= 10) return { start: '19:00', end: '20:40' };
+  return { start: '20:50', end: '22:30' };
+}
+
+/** 解析周次表达式 → 周次数组 */
+function expandWeeks(expr: string, totalWeeks: number): number[] {
+  const e = (expr || '').trim();
+  if (!e || e === '自由时间' || /自由/i.test(e)) return [];
+  const oddMatch = e.match(/^(\d+)-(\d+)周?\(单\)$/);
+  const evenMatch = e.match(/^(\d+)-(\d+)周?\(双\)$/);
+  if (oddMatch || evenMatch) {
+    const m = oddMatch || evenMatch!;
+    const start = parseInt(m[1], 10);
+    const end = Math.min(parseInt(m[2], 10), totalWeeks);
+    const isOdd = !!oddMatch;
+    const weeks: number[] = [];
+    for (let w = start; w <= end; w++) {
+      if ((isOdd && w % 2 === 1) || (!isOdd && w % 2 === 0)) weeks.push(w);
+    }
+    return weeks;
+  }
+  const range = e.match(/^(\d+)-(\d+)$/);
+  if (range) {
+    const start = parseInt(range[1], 10);
+    const end = Math.min(parseInt(range[2], 10), totalWeeks);
+    const weeks: number[] = [];
+    for (let w = start; w <= end; w++) weeks.push(w);
+    return weeks;
+  }
+  return e
+    .split(/[,，、\s]+/)
+    .map(x => parseInt(x, 10))
+    .filter(n => !isNaN(n) && n >= 1 && n <= totalWeeks);
+}
+
+/** 解析 weekday 为数字 0-6 */
+function parseWeekday(v: number | string | undefined): number | null {
+  if (v === undefined || v === null || v === '') return null;
+  const map: Record<string, number> = {
+    '周一': 0, '星期二': 1, '周三': 2, '周四': 3, '周五': 4, '周六': 5, '周日': 6,
+    '星期一': 0, '周二': 1, '星期三': 2, '星期四': 3, '星期五': 4, '星期六': 5, '星期日': 6,
+    '一': 0, '二': 1, '三': 2, '四': 3, '五': 4, '六': 5, '日': 6, '天': 6,
+  };
+  if (typeof v === 'number') return v >= 0 && v <= 6 ? v : null;
+  const s = String(v).trim();
+  if (map[s] !== undefined) return map[s];
+  const n = parseInt(s, 10);
+  return !isNaN(n) && n >= 0 && n <= 6 ? n : null;
+}
+
+/** 计算第 weekNo 周 weekday 对应的日期（semesterStart 为第1周周一） */
+function weekDate(semesterStart: string, weekNo: number, weekday: number): Date {
+  const base = new Date(semesterStart + 'T00:00:00+08:00');
+  const days = (weekNo - 1) * 7 + weekday;
+  return new Date(base.getTime() + days * 86400000);
+}
+
+/** 剥离 HTML 标签，提取可见文本（应对用户直接粘贴网页表格 HTML） */
+function stripHtml(input: string): string {
+  return input
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const text = body?.text;
+    const rawText = body?.text;
     
-    if (!text || typeof text !== 'string') {
+    if (!rawText || typeof rawText !== 'string') {
       return NextResponse.json({ error: '请输入要解析的文本' }, { status: 400 });
     }
+
+    // 剥离 HTML（如果是网页表格）并压缩空白
+    const text = stripHtml(rawText);
 
     // 提取转发头
     let customHeaders: Record<string, string> = {};
@@ -137,7 +227,7 @@ export async function POST(request: NextRequest) {
 本学期开学日期（第1周的周一）：${semesterStart}
 学期总周数：${semesterWeeks}
 
-请解析以下文本，提取待办任务（课程表请按周次展开为每周一条）：
+请解析以下文本，提取待办任务：
 
 "${text}"
 
@@ -151,7 +241,7 @@ export async function POST(request: NextRequest) {
     // 使用 stream 方式收集完整响应（invoke 在 Next.js 环境有兼容性问题）
     const stream = client.stream(messages, {
       model: model || 'doubao-seed-2-0-mini-260215',
-      temperature: 0.3,
+      temperature: 0.2,
     });
     
     let rawContent = '';
@@ -176,7 +266,7 @@ export async function POST(request: NextRequest) {
       content = jsonMatch[0];
     }
     
-    let parsedTasks: ParsedTask[];
+    let parsedTasks: RawCourse[];
     try {
       parsedTasks = JSON.parse(content);
     } catch {
@@ -192,66 +282,101 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'AI 返回格式解析失败' }, { status: 500 });
     }
 
-    // 验证数据结构
-    const validTasks = parsedTasks.filter(task => 
-      task && typeof task.title === 'string' && task.title.length > 0
-    ).map(task => ({
-      title: task.title,
-      description: task.description || '',
-      task_type: ['course', 'homework', 'exam', 'activity', 'personal'].includes(task.task_type) ? task.task_type : 'personal',
-      priority: ['low', 'medium', 'high', 'urgent'].includes(task.priority) ? task.priority : 'medium',
-      importance: ['normal', 'important', 'very_important'].includes(task.importance) ? task.importance : 'normal',
-      start_time: task.start_time || undefined,
-      end_time: task.end_time || undefined,
-    }));
+    const validTypes = ['course', 'homework', 'exam', 'activity', 'personal'];
+    const validPriorities = ['low', 'medium', 'high', 'urgent'];
+    const validImportances = ['normal', 'important', 'very_important'];
 
-    if (validTasks.length === 0) {
+    const results: ParsedTask[] = [];
+
+    for (const raw of parsedTasks) {
+      if (!raw || typeof raw.title !== 'string' || !raw.title.trim()) continue;
+
+      const base: ParsedTask = {
+        title: raw.title.trim()
+          .replace(/^\d{1,2}[:：]\d{2}\s*[-~至]\s*\d{1,2}[:：]\d{2}\s*/g, '')
+          .replace(/^\d{1,2}[:：]\d{2}\s*/g, '')
+          .replace(/^第\d+(-\d+)?节\s*/g, '')
+          .trim(),
+        description: raw.description || '',
+        task_type: validTypes.includes(raw.task_type || '') ? (raw.task_type as ParsedTask['task_type']) : 'personal',
+        priority: validPriorities.includes(raw.priority || '') ? (raw.priority as ParsedTask['priority']) : 'medium',
+        importance: validImportances.includes(raw.importance || '') ? (raw.importance as ParsedTask['importance']) : 'normal',
+      };
+
+      if (!base.title || /^(课程|待办事项)$/.test(base.title)) {
+        if (raw.location && raw.location.length > 2) base.title = '待办事项';
+      }
+
+      // 判断是否为课程（有结构化字段）
+      const weekday = parseWeekday(raw.weekday);
+      const hasCourseFields = weekday !== null && raw.weeks && raw.start_section;
+
+      if (hasCourseFields && raw.start_section) {
+        const weeks = expandWeeks(String(raw.weeks), semesterWeeks);
+        if (weeks.length === 0) continue; // 自由时间等跳过
+        const startSec = Number(raw.start_section);
+        const endSec = Number(raw.end_section) >= startSec ? Number(raw.end_section) : startSec + 1;
+        const st = sectionTime(startSec);
+        const et = sectionTime(endSec);
+        const loc = raw.location ? `地点：${raw.location}` : '';
+        const desc = [raw.description, loc].filter(Boolean).join('；');
+        for (const w of weeks) {
+          const date = weekDate(semesterStart, w, weekday);
+          const y = date.getFullYear();
+          const m = String(date.getMonth() + 1).padStart(2, '0');
+          const d = String(date.getDate()).padStart(2, '0');
+          results.push({
+            ...base,
+            description: desc,
+            start_time: `${y}-${m}-${d}T${st.start}:00+08:00`,
+            end_time: `${y}-${m}-${d}T${et.end}:00+08:00`,
+          });
+        }
+      } else {
+        // 一次性任务
+        let s = raw.start_time;
+        let e = raw.end_time;
+        // 时间校验
+        if (s) { const d = new Date(s); if (isNaN(d.getTime())) s = undefined; }
+        if (e) { const d = new Date(e); if (isNaN(d.getTime())) e = undefined; }
+        if (s && e) {
+          const stMs = new Date(s).getTime();
+          const etMs = new Date(e).getTime();
+          if (etMs <= stMs) {
+            const defaultMin = base.task_type === 'course' ? 100 : 60;
+            e = new Date(stMs + defaultMin * 60 * 1000).toISOString();
+          }
+        }
+        if (raw.location && base.description) {
+          base.description = `${base.description}；地点：${raw.location}`;
+        } else if (raw.location) {
+          base.description = `地点：${raw.location}`;
+        }
+        results.push({ ...base, start_time: s, end_time: e });
+      }
+    }
+
+    if (results.length === 0) {
       return NextResponse.json({ error: '未能从文本中提取出有效任务，请尝试更详细的描述' }, { status: 400 });
     }
 
-    // 后端兜底校正：清理标题中的笼统描述（如"8:00-9:40 课程"→"课程"），并校正时间
-    const cleanedTasks = validTasks.map(task => {
-      const cleaned = { ...task };
-      // 标题清理：去掉时间前缀和"课程"占位
-      cleaned.title = cleaned.title
-        .replace(/^\d{1,2}[:：]\d{2}\s*[-~至]\s*\d{1,2}[:：]\d{2}\s*/g, '')
-        .replace(/^\d{1,2}[:：]\d{2}\s*/g, '')
-        .replace(/^第\d+-\d+节\s*/g, '')
-        .trim();
-      if (!cleaned.title || cleaned.title === '课程' || /^[课]?程$/.test(cleaned.title) || /^地点|^教室|^未知/.test(cleaned.title)) {
-        cleaned.title = task.description && task.description.length > 2 ? task.description.split(/[\s,，、]/)[0] : '待办事项';
-      }
-      // 时间校正：确保 start < end，且时间有效
-      if (cleaned.start_time) {
-        const s = new Date(cleaned.start_time);
-        if (isNaN(s.getTime())) cleaned.start_time = undefined;
-      }
-      if (cleaned.end_time) {
-        const e = new Date(cleaned.end_time);
-        if (isNaN(e.getTime())) cleaned.end_time = undefined;
-      }
-      if (cleaned.start_time && cleaned.end_time) {
-        const s = new Date(cleaned.start_time).getTime();
-        const e = new Date(cleaned.end_time).getTime();
-        if (e <= s) {
-          // 结束时间不晚于开始时间：如果是课程默认加100分钟，否则加60分钟
-          const defaultMin = cleaned.task_type === 'course' ? 100 : 60;
-          cleaned.end_time = new Date(s + defaultMin * 60 * 1000).toISOString();
-        }
-      }
-      return cleaned;
-    });
-
-    // 去重：按 标题 + 开始时间 去重（课程表同一门课同一天同一时段只保留一条）
+    // 去重：按 标题 + 开始时间 去重
     const seen = new Set<string>();
-    const dedupedTasks = cleanedTasks.filter(task => {
-      const key = `${task.title}|${task.start_time || ''}|${task.end_time || ''}`;
+    const deduped = results.filter(t => {
+      const key = `${t.title}|${t.start_time || ''}|${t.end_time || ''}`;
       if (seen.has(key)) return false;
       seen.add(key);
       return true;
     });
 
-    return NextResponse.json({ tasks: dedupedTasks });
+    // 按开始时间排序
+    deduped.sort((a, b) => {
+      const ta = a.start_time ? new Date(a.start_time).getTime() : 0;
+      const tb = b.start_time ? new Date(b.start_time).getTime() : 0;
+      return ta - tb;
+    });
+
+    return NextResponse.json({ tasks: deduped });
   } catch (err: unknown) {
     console.error('AI Parse error:', err);
     let message = '解析失败，请重试';
