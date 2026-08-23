@@ -59,9 +59,14 @@ export const styleThemes: Record<ThemeStyle, StyleThemeInfo> = {
     name: '南哪',
     icon: '🏫',
     backgrounds: [
-      { id: 'nanda-purple', name: '南大紫韵', css: 'linear-gradient(160deg, #faf5ff 0%, #f3e8ff 30%, #f5f0f9 60%, #fdf4ff 100%)' },
-      { id: 'nanda-book', name: '书页纹理', css: 'linear-gradient(160deg, #f5f3ff 0%, #ede9fe 30%, #f5f0f9 60%, #faf5ff 100%)' },
-      { id: 'nanda-night', name: '紫夜星芒', css: 'linear-gradient(160deg, #f5f3ff 0%, #ddd6fe 25%, #e9d5ff 60%, #faf5ff 100%)' },
+      { id: 'nanda-xianlin-square', name: '仙林二源广场', css: 'url(/themes/仙林校区二源广场.jpg)' },
+      { id: 'nanda-xianlin-spring', name: '仙林春景', css: 'url(/themes/仙林校区春景.jpg)' },
+      { id: 'nanda-gulou-tower', name: '鼓楼北大楼', css: 'url(/themes/鼓楼北大楼.jpg)' },
+      { id: 'nanda-gulou-spring', name: '鼓楼春景', css: 'url(/themes/鼓楼校区春景.jpg)' },
+      { id: 'nanda-gulou-gate', name: '鼓楼校门', css: 'url(/themes/鼓楼校门.jpg)' },
+      { id: 'nanda-suzhou-swan', name: '苏州天鹅', css: 'url(/themes/苏州天鹅.jpg)' },
+      { id: 'nanda-suzhou-view', name: '苏州景色', css: 'url(/themes/苏州景色.jpg)' },
+      { id: 'nanda-suzhou-cat', name: '苏州猫咪', css: 'url(/themes/苏州猫咪.jpg)' },
     ],
   },
   'custom': {
@@ -138,17 +143,35 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
           bgEl = document.createElement('div');
           bgEl.id = 'builtin-bg-layer';
           // z-index -1 与 body::before 同层；由于是后插入的固定定位元素，会覆盖默认渐变
-          bgEl.style.cssText = 'position:fixed;inset:0;z-index:-1;pointer-events:none;';
+          bgEl.style.cssText = 'position:fixed;inset:0;z-index:-1;pointer-events:none;background-size:cover;background-position:center;';
           document.body.insertBefore(bgEl, document.body.firstChild);
         }
         bgEl.style.backgroundImage = selected.css;
+        // 图片背景（url）加白色半透明遮罩，保证文字可读性
+        if (selected.css.startsWith('url(')) {
+          let overlayEl = document.getElementById('builtin-bg-overlay');
+          if (!overlayEl) {
+            overlayEl = document.createElement('div');
+            overlayEl.id = 'builtin-bg-overlay';
+            overlayEl.style.cssText = 'position:fixed;inset:0;z-index:-1;pointer-events:none;background:rgba(255,255,255,0.55);';
+            if (bgEl.nextSibling) bgEl.parentNode?.insertBefore(overlayEl, bgEl.nextSibling);
+            else bgEl.parentNode?.appendChild(overlayEl);
+          }
+        } else {
+          const overlayEl = document.getElementById('builtin-bg-overlay');
+          if (overlayEl) overlayEl.remove();
+        }
       } else {
         const bgEl = document.getElementById('builtin-bg-layer');
         if (bgEl) bgEl.remove();
+        const overlayEl = document.getElementById('builtin-bg-overlay');
+        if (overlayEl) overlayEl.remove();
       }
     } else {
       const bgEl = document.getElementById('builtin-bg-layer');
       if (bgEl) bgEl.remove();
+      const overlayEl = document.getElementById('builtin-bg-overlay');
+      if (overlayEl) overlayEl.remove();
     }
     
     // 自定义背景
