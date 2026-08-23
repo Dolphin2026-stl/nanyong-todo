@@ -109,7 +109,8 @@ function sectionTime(section: number): { start: string; end: string } {
 
 /** 解析周次表达式 → 周次数组 */
 function expandWeeks(expr: string, totalWeeks: number): number[] {
-  const e = (expr || '').trim();
+  // 去"周"字（保留 单/双 标记），如 "1-18周" → "1-18"，"2周,6周,10周,14周" → "2,6,10,14"
+  const e = (expr || '').trim().replace(/(\d)周/g, '$1');
   if (!e || e === '自由时间' || /自由/i.test(e)) return [];
   const oddMatch = e.match(/^(\d+)-(\d+)周?\(单\)$/);
   const evenMatch = e.match(/^(\d+)-(\d+)周?\(双\)$/);
