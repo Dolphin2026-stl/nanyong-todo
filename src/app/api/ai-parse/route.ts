@@ -49,7 +49,7 @@ const systemPrompt = `你是一个专业的待办事项与大学课程表解析�
 
 【课程表解析规则 - 极其重要】
 当文本是课程表时（包含"周X"、"第X-Y节"、"X周"等信息），每条上课时间输出为一个对象，并使用以下结构化字段，**不要展开周次**：
-- weekday: 星期几，用数字 0-6 表示（周一=0、周二=1、周三=2、周四=3、周五=4、周六=5、周日=6）
+- weekday: 星期几，**用中文输出**："周一"、"周二"、"周三"、"周四"、"周五"、"周六"、"周日"（不要用数字！）
 - start_section: 开始节次（数字，如第7-8节则 start_section=7）
 - end_section: 结束节次（数字，如第7-8节则 end_section=8）
 - weeks: 周次表达式，原样保留，如 "1-18"、"2,6,10,14"、"1-17(单)"、"1-17(双)"
@@ -57,11 +57,11 @@ const systemPrompt = `你是一个专业的待办事项与大学课程表解析�
 - 课程的时间描述放在 title 和 location/weekday 等字段中，不要写进 description（description 只放教师、QQ、考核方式等额外信息）
 
 课程表常见格式示例：
-1. "周一 7-8节 2周,6周,10周,14周 苏教B201 形势与政策" → weekday=0, start_section=7, end_section=8, weeks="2,6,10,14", location="苏教B201", title="形势与政策"
-2. "周二 5-7节 1-18周 苏教B203 习近平新时代中国特色社会主义思想概论" → weekday=1, start_section=5, end_section=7, weeks="1-18", location="苏教B203"
+1. "周一 7-8节 2周,6周,10周,14周 苏教B201 形势与政策" → weekday="周一", start_section=7, end_section=8, weeks="2,6,10,14", location="苏教B201", title="形势与政策"
+2. "周二 5-7节 1-18周 苏教B203 习近平新时代中国特色社会主义思想概论" → weekday="周二", start_section=5, end_section=7, weeks="1-18", location="苏教B203"
 3. "周四 3-4节 1-18周 苏教A207"（同一门课有多个时间段，逗号分隔）→ 每个时间段单独输出一个对象
 4. "自由时间 2-18周 自由地点" → 跳过，不输出
-5. "周五 3-4节 1-17周(单) 苏教B201" → weeks="1-17(单)"
+5. "周五 3-4节 1-17周(单) 苏教B201" → weekday="周五", weeks="1-17(单)"
 
 【一次性任务规则】
 考试、作业、活动等一次性任务直接输出：
@@ -82,7 +82,7 @@ JSON 格式示例：
   "task_type": "course",
   "priority": "medium",
   "importance": "important",
-  "weekday": 1,
+  "weekday": "周二",
   "start_section": 3,
   "end_section": 4,
   "weeks": "1-18",
