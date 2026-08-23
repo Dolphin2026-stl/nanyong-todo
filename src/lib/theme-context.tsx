@@ -138,11 +138,13 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       const styleInfo = styleThemes[theme.style];
       const selected = styleInfo?.backgrounds?.find(b => b.id === theme.backgroundId);
       if (selected) {
+        // 标记 body 使用图片背景（CSS 据此隐藏 body::before 的默认渐变）
+        document.body.setAttribute('data-bg-photo', selected.css.startsWith('url(') ? 'true' : 'false');
         let bgEl = document.getElementById('builtin-bg-layer');
         if (!bgEl) {
           bgEl = document.createElement('div');
           bgEl.id = 'builtin-bg-layer';
-          // z-index -1 与 body::before 同层；由于是后插入的固定定位元素，会覆盖默认渐变
+          // z-index -1：位于内容之下；配合 CSS [data-bg-photo] 使 body::before 透明后，图片可见
           bgEl.style.cssText = 'position:fixed;inset:0;z-index:-1;pointer-events:none;background-size:cover;background-position:center;';
           document.body.insertBefore(bgEl, document.body.firstChild);
         }
@@ -162,12 +164,14 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
           if (overlayEl) overlayEl.remove();
         }
       } else {
+        document.body.removeAttribute('data-bg-photo');
         const bgEl = document.getElementById('builtin-bg-layer');
         if (bgEl) bgEl.remove();
         const overlayEl = document.getElementById('builtin-bg-overlay');
         if (overlayEl) overlayEl.remove();
       }
     } else {
+      document.body.removeAttribute('data-bg-photo');
       const bgEl = document.getElementById('builtin-bg-layer');
       if (bgEl) bgEl.remove();
       const overlayEl = document.getElementById('builtin-bg-overlay');
