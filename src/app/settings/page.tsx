@@ -9,7 +9,7 @@ import AppLayout from '@/components/app-layout';
 
 export default function SettingsPage() {
   const { settings, updateSettings } = useApp();
-  const { colorScheme, setColorScheme, styleTheme, setStyleTheme, customBackground, setCustomBackground, blurLevel, setBlurLevel } = useTheme();
+  const { colorScheme, setColorScheme, styleTheme, setStyleTheme, customBackground, setCustomBackground, blurLevel, setBlurLevel, backgroundId, setBackgroundId, applyCustomBackground } = useTheme();
   const { user, getAccessToken, updateProfile } = useAuth();
   const toast = useAppToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -80,8 +80,8 @@ export default function SettingsPage() {
     const reader = new FileReader();
     reader.onload = (event) => {
       const dataUrl = event.target?.result as string;
-      setCustomBackground(dataUrl);
-      setStyleTheme('custom');
+      // 原子化设置：背景图 + 风格一次更新，避免状态互相覆盖
+      applyCustomBackground(dataUrl);
       toast.success('背景图片已设置');
     };
     reader.readAsDataURL(file);
@@ -236,6 +236,46 @@ export default function SettingsPage() {
               </div>
             </div>
 
+            {/* 内置背景图自选（自然/现代/南哪） */}
+            {styleTheme !== 'custom' && styleThemes[styleTheme]?.backgrounds?.length > 0 && (
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-3">
+                  背景图 <span className="text-xs text-muted-foreground">(选择该风格下的背景)</span>
+                </label>
+                <div className="grid grid-cols-3 gap-3">
+                  {styleThemes[styleTheme].backgrounds.map(bg => (
+                    <button
+                      key={bg.id}
+                      onClick={() => setBackgroundId(backgroundId === bg.id ? null : bg.id)}
+                      className={`rounded-xl overflow-hidden border-2 transition-all ${
+                        backgroundId === bg.id
+                          ? 'border-primary ring-2 ring-primary/30'
+                          : 'border-border hover:border-muted-foreground/30'
+                      }`}
+                    >
+                      <div
+                        className="h-16 w-full"
+                        style={{ backgroundImage: bg.css }}
+                      />
+                      <div className={`py-1.5 text-xs font-medium text-center ${
+                        backgroundId === bg.id ? 'text-primary' : 'text-muted-foreground'
+                      }`}>
+                        {backgroundId === bg.id ? '✓ ' : ''}{bg.name}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+                {backgroundId && (
+                  <button
+                    onClick={() => setBackgroundId(null)}
+                    className="mt-2 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    ✕ 恢复默认背景
+                  </button>
+                )}
+              </div>
+            )}
+
             {/* 自定义背景 */}
             {styleTheme === 'custom' && (
               <div className="p-4 bg-muted/50 rounded-xl space-y-4">
@@ -256,7 +296,7 @@ export default function SettingsPage() {
                   />
                   {customBackground && (
                     <button
-                      onClick={() => { setCustomBackground(''); toast.success('已清除背景'); }}
+                      onClick={() => { setCustomBackground(null); setStyleTheme('natural'); toast.success('已清除背景'); }}
                       className="px-4 py-2 text-destructive border border-destructive/30 rounded-lg text-sm font-medium hover:bg-destructive/5 transition-colors"
                     >
                       清除背景
