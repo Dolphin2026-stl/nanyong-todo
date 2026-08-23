@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseClient } from '@/storage/database/supabase-client';
+import { getUserFromToken } from '@/storage/database/local-auth';
 
 export const dynamic = 'force-dynamic';
 
@@ -28,16 +29,22 @@ const taskTypeLabels: Record<string, string> = {
 export async function GET(request: NextRequest) {
   try {
     const token = request.headers.get('x-session') ?? undefined;
+    const user = getUserFromToken(token);
+    if (!user) {
+      return NextResponse.json({ error: '未登录' }, { status: 401 });
+    }
     const supabase = getSupabaseClient(token);
     
-    // 获取所有未完成任务
-    const { data: tasks, error } = await supabase
+    // 获取当前用户所有未完成任务
+    const { data, error } = await supabase
       .from('tasks')
       .select('*')
+      .eq('user_id', user.id)
       .eq('is_completed', false)
       .order('end_time', { ascending: true, nullsFirst: false });
     
     if (error) throw error;
+    const tasks = (data || []) as Record<string, unknown>[];
     
     // 生成 ICS 内容
     const now = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
@@ -54,20 +61,24 @@ export async function GET(request: NextRequest) {
     ].join('\r\n');
     
     for (const task of tasks) {
-      const endTime = task.end_time || task.start_time;
+      const endTime = typeof task.end_time === 'string' ? task.end_time : (typeof task.start_time === 'string' ? task.start_time : undefined);
       if (!endTime) continue; // 没有时间的任务不导出
       
-      const startTime = task.start_time || task.end_time;
-      const typeLabel = taskTypeLabels[task.task_type] || '待办';
+      const startTime = typeof task.start_time === 'string' ? task.start_time : endTime;
+      const taskType = typeof task.task_type === 'string' ? task.task_type : '';
+      const title = typeof task.title === 'string' ? task.title : '';
+      const description = typeof task.description === 'string' ? task.description : '';
+      const id = typeof task.id === 'string' ? task.id : 'task';
+      const typeLabel = taskTypeLabels[taskType] || '待办';
       
       icsContent += [
         'BEGIN:VEVENT',
-        `UID:${task.id}@nanyongtodo`,
+        `UID:${id}@nanyongtodo`,
         `DTSTAMP:${now}`,
         `DTSTART:${formatICSDate(startTime)}`,
         `DTEND:${formatICSDate(endTime)}`,
-        `SUMMARY:【${typeLabel}】${escapeICS(task.title)}`,
-        task.description ? `DESCRIPTION:${escapeICS(task.description)}` : '',
+        `SUMMARY:【${typeLabel}】${escapeICS(title)}`,
+        description ? `DESCRIPTION:${escapeICS(description)}` : '',
         `CATEGORIES:${typeLabel}`,
         'END:VEVENT',
         '',

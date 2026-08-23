@@ -1,12 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseClient } from '@/storage/database/supabase-client';
+import { getUserFromToken } from '@/storage/database/local-auth';
 
 export const dynamic = 'force-dynamic';
 
-// 批量更新任务（统一设置优先级/重要程度/标签等）
+// 批量更新任务（统一设置优先级/重要程度等）
 export async function PATCH(request: NextRequest) {
   try {
     const token = request.headers.get('x-session') ?? undefined;
+    const user = getUserFromToken(token);
+    if (!user) {
+      return NextResponse.json({ error: '未登录' }, { status: 401 });
+    }
     const supabase = getSupabaseClient(token);
 
     const body = await request.json();
@@ -41,6 +46,7 @@ export async function PATCH(request: NextRequest) {
       .from('tasks')
       .update(cleanUpdates)
       .in('id', ids)
+      .eq('user_id', user.id)
       .select();
 
     if (error) throw error;
@@ -58,6 +64,10 @@ export async function PATCH(request: NextRequest) {
 export async function DELETE(request: NextRequest) {
   try {
     const token = request.headers.get('x-session') ?? undefined;
+    const user = getUserFromToken(token);
+    if (!user) {
+      return NextResponse.json({ error: '未登录' }, { status: 401 });
+    }
     const supabase = getSupabaseClient(token);
 
     const body = await request.json();
@@ -71,6 +81,7 @@ export async function DELETE(request: NextRequest) {
       .from('tasks')
       .delete()
       .in('id', ids)
+      .eq('user_id', user.id)
       .select();
 
     if (error) throw error;

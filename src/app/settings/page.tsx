@@ -15,8 +15,8 @@ export default function SettingsPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // 用户资料
-  const [nickname, setNickname] = useState(user?.user_metadata?.nickname || '');
-  const [school, setSchool] = useState(user?.user_metadata?.school || '');
+  const [nickname, setNickname] = useState(user?.nickname || '');
+  const [school, setSchool] = useState(user?.school || '');
   const [isUpdatingProfile, setIsUpdatingProfile] = useState(false);
 
   // AI 设置
@@ -34,8 +34,8 @@ export default function SettingsPage() {
 
   useEffect(() => {
     if (user) {
-      setNickname(user.user_metadata?.nickname || '');
-      setSchool(user.user_metadata?.school || '');
+      setNickname(user.nickname || '');
+      setSchool(user.school || '');
     }
   }, [user]);
 

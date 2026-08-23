@@ -31,7 +31,7 @@ export function Sidebar({ isOpen, onClose }: { isOpen: boolean; onClose: () => v
     }
   };
 
-  const nickname = user?.user_metadata?.nickname || user?.email?.split('@')[0] || '用户';
+  const nickname = user?.nickname || user?.email?.split('@')[0] || '用户';
   const initial = (nickname?.[0] || 'U').toUpperCase();
 
   return (

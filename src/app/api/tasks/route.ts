@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseClient } from '@/storage/database/supabase-client';
+import { getUserFromToken } from '@/storage/database/local-auth';
 
 export const dynamic = 'force-dynamic';
 
@@ -8,9 +9,8 @@ async function getUserId(request: NextRequest): Promise<string> {
   if (!token) {
     throw new Error('未登录');
   }
-  const supabase = getSupabaseClient(token);
-  const { data: { user }, error } = await supabase.auth.getUser();
-  if (error || !user) {
+  const user = getUserFromToken(token);
+  if (!user) {
     throw new Error('认证失败');
   }
   return user.id;
@@ -20,13 +20,17 @@ async function getUserId(request: NextRequest): Promise<string> {
 export async function GET(request: NextRequest) {
   try {
     const token = request.headers.get('x-session') ?? undefined;
+    const user = getUserFromToken(token);
+    if (!user) {
+      return NextResponse.json({ error: '未登录' }, { status: 401 });
+    }
     const supabase = getSupabaseClient(token);
     
     const { searchParams } = new URL(request.url);
     const type = searchParams.get('type');
     const completed = searchParams.get('completed');
     
-    let query = supabase.from('tasks').select('*');
+    let query = supabase.from('tasks').select('*').eq('user_id', user.id);
     
     if (type) {
       query = query.eq('task_type', type);
@@ -55,6 +59,10 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const token = request.headers.get('x-session') ?? undefined;
+    const user = getUserFromToken(token);
+    if (!user) {
+      return NextResponse.json({ error: '未登录' }, { status: 401 });
+    }
     const supabase = getSupabaseClient(token);
     
     const body = await request.json();
@@ -62,6 +70,7 @@ export async function POST(request: NextRequest) {
     const { data, error } = await supabase
       .from('tasks')
       .insert({
+        user_id: user.id,
         title: body.title,
         description: body.description || null,
         task_type: body.task_type || 'personal',

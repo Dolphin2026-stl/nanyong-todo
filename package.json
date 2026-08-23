@@ -90,7 +90,7 @@
     "tsx": "^4.19.2",
     "typescript": "^5"
   },
-  "packageManager": "pnpm@9.0.0",
+  "packageManager": "pnpm@11.7.0",
   "engines": {
     "pnpm": ">=9.0.0"
   }

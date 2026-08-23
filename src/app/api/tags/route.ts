@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseClient } from '@/storage/database/supabase-client';
+import { getUserFromToken } from '@/storage/database/local-auth';
 
 export const dynamic = 'force-dynamic';
 
@@ -7,11 +8,16 @@ export const dynamic = 'force-dynamic';
 export async function GET(request: NextRequest) {
   try {
     const token = request.headers.get('x-session') ?? undefined;
+    const user = getUserFromToken(token);
+    if (!user) {
+      return NextResponse.json({ error: '未登录' }, { status: 401 });
+    }
     const supabase = getSupabaseClient(token);
     
     const { data, error } = await supabase
       .from('tags')
       .select('*')
+      .eq('user_id', user.id)
       .order('created_at', { ascending: true });
     
     if (error) throw error;
@@ -29,6 +35,10 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const token = request.headers.get('x-session') ?? undefined;
+    const user = getUserFromToken(token);
+    if (!user) {
+      return NextResponse.json({ error: '未登录' }, { status: 401 });
+    }
     const supabase = getSupabaseClient(token);
     
     const body = await request.json();
@@ -36,6 +46,7 @@ export async function POST(request: NextRequest) {
     const { data, error } = await supabase
       .from('tags')
       .insert({
+        user_id: user.id,
         name: body.name,
         color: body.color || null,
       })

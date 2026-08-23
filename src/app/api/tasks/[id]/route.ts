@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseClient } from '@/storage/database/supabase-client';
+import { getUserFromToken } from '@/storage/database/local-auth';
 
 export const dynamic = 'force-dynamic';
 
@@ -11,6 +12,10 @@ export async function PATCH(
   try {
     const { id } = await params;
     const token = request.headers.get('x-session') ?? undefined;
+    const user = getUserFromToken(token);
+    if (!user) {
+      return NextResponse.json({ error: '未登录' }, { status: 401 });
+    }
     const supabase = getSupabaseClient(token);
     
     const body = await request.json();
@@ -30,6 +35,7 @@ export async function PATCH(
       .from('tasks')
       .update(updateData)
       .eq('id', id)
+      .eq('user_id', user.id)
       .select()
       .single();
     
@@ -52,12 +58,17 @@ export async function DELETE(
   try {
     const { id } = await params;
     const token = request.headers.get('x-session') ?? undefined;
+    const user = getUserFromToken(token);
+    if (!user) {
+      return NextResponse.json({ error: '未登录' }, { status: 401 });
+    }
     const supabase = getSupabaseClient(token);
     
     const { error } = await supabase
       .from('tasks')
       .delete()
-      .eq('id', id);
+      .eq('id', id)
+      .eq('user_id', user.id);
     
     if (error) throw error;
     

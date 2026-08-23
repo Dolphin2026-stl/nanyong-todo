@@ -251,6 +251,31 @@ class LocalUpdateBuilderWithSelect {
   single(): LocalUpdateSingleBuilder {
     return new LocalUpdateSingleBuilder(this.table, this.updates, this.filters);
   }
+
+  async then(resolve: (value: SupabaseResponse<Row[]>) => void): Promise<void> {
+    const db = loadDb();
+    let collection: Row[];
+    if (this.table === 'tasks') collection = db.tasks as unknown as Row[];
+    else if (this.table === 'tags') collection = db.tags as unknown as Row[];
+    else collection = [];
+
+    const updated: Row[] = [];
+    for (const row of collection) {
+      let match = true;
+      for (const f of this.filters) {
+        const val = row[f.field];
+        if (f.op === 'eq' && val !== f.value) match = false;
+        if (f.op === 'in' && !(f.value as unknown[]).includes(val)) match = false;
+      }
+      if (match) {
+        Object.assign(row, this.updates);
+        row.updated_at = nowIso();
+        updated.push(row);
+      }
+    }
+    saveDb();
+    resolve({ data: updated, error: null });
+  }
 }
 
 class LocalUpdateSingleBuilder {
