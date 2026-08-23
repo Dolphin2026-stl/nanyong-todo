@@ -1,4 +1,5 @@
+# pnpm 允许的构建脚本（本地版构建必需）
 allowBuilds:
-  esbuild: set this to true or false
-  sharp: set this to true or false
-  unrs-resolver: set this to true or false
+  esbuild: true
+  sharp: true
+  unrs-resolver: true
