@@ -357,6 +357,37 @@
   background-attachment: fixed;
 }
 
+/* 图片背景模式：隐藏 body::before/::after 的默认渐变与装饰，让 builtin-bg-layer 的图片可见 */
+body[data-bg-photo="true"]::before,
+body[data-bg-photo="true"]::after {
+  background: transparent !important;
+  background-image: none !important;
+  opacity: 1 !important;
+}
+
+/* 图片背景模式：主内容容器背景透明，露出背景图片 */
+body[data-bg-photo="true"] #app-shell {
+  background: transparent !important;
+}
+
+/* 图片背景模式：卡片保持玻璃拟态半透明，文字可读 */
+body[data-bg-photo="true"] #app-shell .bg-card {
+  background-color: color-mix(in srgb, var(--card, #ffffff) 88%, transparent);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+
+/* 图片背景模式：侧边栏与移动端顶栏半透明 */
+body[data-bg-photo="true"] .bg-sidebar {
+  background-color: color-mix(in srgb, var(--sidebar, #f5f0f9) 82%, transparent);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+body[data-bg-photo="true"] header.bg-background\/80,
+body[data-bg-photo="true"] .bg-background\/80 {
+  background-color: color-mix(in srgb, var(--background, #ffffff) 75%, transparent) !important;
+}
+
 /* 南哪风格：紫色光晕卡片 */
 [data-style="nanda-fun"] .bg-card {
   backdrop-filter: blur(16px);
