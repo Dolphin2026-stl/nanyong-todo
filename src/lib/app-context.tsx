@@ -1,6 +1,27 @@
 'use client';
 
 import { createContext, useContext, useState, useCallback, ReactNode } from 'react';
+import { getSupabaseBrowserClientWithRetry } from '@/lib/supabase-browser';
+
+/** 获取当前登录用户的 access token，用于 API 认证头 */
+async function getSessionToken(): Promise<string | undefined> {
+  try {
+    const supabase = await getSupabaseBrowserClientWithRetry();
+    const { data: { session } } = await supabase.auth.getSession();
+    return session?.access_token || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** 构造带认证头的请求头 */
+async function authHeaders(json = false): Promise<Record<string, string>> {
+  const token = await getSessionToken();
+  const headers: Record<string, string> = {};
+  if (json) headers['Content-Type'] = 'application/json';
+  if (token) headers['x-session'] = token;
+  return headers;
+}
 
 export type TaskType = 'course' | 'homework' | 'exam' | 'activity' | 'personal';
 export type TaskPriority = 'low' | 'medium' | 'high' | 'urgent';
@@ -93,7 +114,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const refreshTasks = useCallback(async () => {
     try {
-      const res = await fetch('/api/tasks');
+      const headers = await authHeaders();
+      const res = await fetch('/api/tasks', { headers });
       if (res.ok) {
         const data = await res.json();
         setTasks(data.tasks || []);
@@ -107,7 +129,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const refreshTags = useCallback(async () => {
     try {
-      const res = await fetch('/api/tags');
+      const headers = await authHeaders();
+      const res = await fetch('/api/tags', { headers });
       if (res.ok) {
         const data = await res.json();
         setTags(data.tags || []);
@@ -118,21 +141,26 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const addTask = useCallback(async (task: Omit<Task, 'id' | 'created_at' | 'updated_at' | 'is_completed'>): Promise<Task> => {
+    const headers = await authHeaders(true);
     const res = await fetch('/api/tasks', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify(task),
     });
-    if (!res.ok) throw new Error('创建任务失败');
+    if (!res.ok) {
+      const data = await res.json().catch(() => null);
+      throw new Error(data?.error || '创建任务失败');
+    }
     const data = await res.json();
     setTasks(prev => [data.task, ...prev]);
     return data.task;
   }, []);
 
   const updateTask = useCallback(async (id: string, updates: Partial<Task>) => {
+    const headers = await authHeaders(true);
     const res = await fetch(`/api/tasks/${id}`, {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify(updates),
     });
     if (!res.ok) throw new Error('更新任务失败');
@@ -141,8 +169,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const deleteTask = useCallback(async (id: string) => {
+    const headers = await authHeaders();
     const res = await fetch(`/api/tasks/${id}`, {
       method: 'DELETE',
+      headers,
     });
     if (!res.ok) throw new Error('删除任务失败');
     setTasks(prev => prev.filter(t => t.id !== id));
@@ -155,9 +185,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [tasks, updateTask]);
 
   const addTag = useCallback(async (name: string, color?: string): Promise<Tag> => {
+    const headers = await authHeaders(true);
     const res = await fetch('/api/tags', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify({ name, color }),
     });
     if (!res.ok) throw new Error('创建标签失败');
@@ -167,17 +198,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const deleteTag = useCallback(async (id: string) => {
+    const headers = await authHeaders();
     const res = await fetch(`/api/tags/${id}`, {
       method: 'DELETE',
+      headers,
     });
     if (!res.ok) throw new Error('删除标签失败');
     setTags(prev => prev.filter(t => t.id !== id));
   }, []);
 
   const updateTag = useCallback(async (id: string, updates: { name?: string; color?: string }) => {
+    const headers = await authHeaders(true);
     const res = await fetch(`/api/tags/${id}`, {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify(updates),
     });
     if (!res.ok) throw new Error('更新标签失败');

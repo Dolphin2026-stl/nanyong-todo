@@ -121,6 +121,8 @@ export default function AddTaskPage() {
           apiKey: apiKey || undefined,
           baseUrl: baseUrl || undefined,
           model: model || undefined,
+          semesterStart: '2026-08-24',
+          weeks: 18,
         }),
       });
 
