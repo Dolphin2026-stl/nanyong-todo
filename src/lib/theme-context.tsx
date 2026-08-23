@@ -11,6 +11,8 @@ export interface ThemeConfig {
   customBackground?: string;
   customBlur: number;
   customOverlay: number;
+  /** 当前风格选中的内置背景 id（可选） */
+  backgroundId?: string;
 }
 
 export interface ColorSchemeInfo {
@@ -23,6 +25,8 @@ export interface ColorSchemeInfo {
 export interface StyleThemeInfo {
   name: string;
   icon: string;
+  /** 内置背景图集（每个风格 3 张可选，用 CSS 渐变/图案模拟，离线可用） */
+  backgrounds: { id: string; name: string; css: string }[];
 }
 
 export const colorSchemes: Record<ThemeColor, ColorSchemeInfo> = {
@@ -33,10 +37,38 @@ export const colorSchemes: Record<ThemeColor, ColorSchemeInfo> = {
 };
 
 export const styleThemes: Record<ThemeStyle, StyleThemeInfo> = {
-  'natural': { name: '自然', icon: '🌿' },
-  'modern': { name: '现代', icon: '✨' },
-  'nanda-fun': { name: '南哪', icon: '🏫' },
-  'custom': { name: '自定义', icon: '🎨' },
+  'natural': {
+    name: '自然',
+    icon: '🌿',
+    backgrounds: [
+      { id: 'natural-forest', name: '森林晨雾', css: 'linear-gradient(135deg, #f0fdf4 0%, #ecfeff 35%, #d1fae5 70%, #f7fee7 100%)' },
+      { id: 'natural-ocean', name: '海风微光', css: 'linear-gradient(160deg, #ecfeff 0%, #cffafe 40%, #e0f2fe 75%, #f0f9ff 100%)' },
+      { id: 'natural-sunset', name: '暖阳草甸', css: 'linear-gradient(150deg, #fffbeb 0%, #fef3c7 40%, #fce7f3 75%, #fdf2f8 100%)' },
+    ],
+  },
+  'modern': {
+    name: '现代',
+    icon: '✨',
+    backgrounds: [
+      { id: 'modern-clean', name: '极简灰蓝', css: 'linear-gradient(180deg, #f8fafc 0%, #f1f5f9 50%, #e2e8f0 100%)' },
+      { id: 'modern-grid', name: '网格蓝图', css: 'linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%)' },
+      { id: 'modern-aurora', name: '极光渐变', css: 'linear-gradient(135deg, #e0f2fe 0%, #ede9fe 50%, #fce7f3 100%)' },
+    ],
+  },
+  'nanda-fun': {
+    name: '南哪',
+    icon: '🏫',
+    backgrounds: [
+      { id: 'nanda-purple', name: '南大紫韵', css: 'linear-gradient(160deg, #faf5ff 0%, #f3e8ff 30%, #f5f0f9 60%, #fdf4ff 100%)' },
+      { id: 'nanda-book', name: '书页纹理', css: 'linear-gradient(160deg, #f5f3ff 0%, #ede9fe 30%, #f5f0f9 60%, #faf5ff 100%)' },
+      { id: 'nanda-night', name: '紫夜星芒', css: 'linear-gradient(160deg, #f5f3ff 0%, #ddd6fe 25%, #e9d5ff 60%, #faf5ff 100%)' },
+    ],
+  },
+  'custom': {
+    name: '自定义',
+    icon: '🎨',
+    backgrounds: [],
+  },
 };
 
 const defaultConfig: ThemeConfig = {
@@ -52,6 +84,7 @@ interface ThemeContextType {
   styleTheme: ThemeStyle;
   customBackground: string | undefined;
   blurLevel: number;
+  backgroundId: string | undefined;
   setColorScheme: (color: ThemeColor) => void;
   setStyleTheme: (style: ThemeStyle) => void;
   setCustomBackground: (bg: string | null) => void;
@@ -60,6 +93,9 @@ interface ThemeContextType {
   setThemeStyle: (style: ThemeStyle) => void;
   setCustomBlur: (blur: number) => void;
   setCustomOverlay: (overlay: number) => void;
+  setBackgroundId: (id: string | null) => void;
+  /** 原子化设置自定义背景（同时设置背景图和风格，避免状态覆盖） */
+  applyCustomBackground: (bg: string) => void;
   resetTheme: () => void;
 }
 
@@ -91,6 +127,29 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     
     // 设置风格主题
     root.setAttribute('data-style', theme.style);
+    
+    // 内置背景选择：自然/现代/南哪 风格下，若选中某张内置背景，覆盖 body::before 的渐变
+    if (theme.style !== 'custom') {
+      const styleInfo = styleThemes[theme.style];
+      const selected = styleInfo?.backgrounds?.find(b => b.id === theme.backgroundId);
+      if (selected) {
+        let bgEl = document.getElementById('builtin-bg-layer');
+        if (!bgEl) {
+          bgEl = document.createElement('div');
+          bgEl.id = 'builtin-bg-layer';
+          // z-index -1 与 body::before 同层；由于是后插入的固定定位元素，会覆盖默认渐变
+          bgEl.style.cssText = 'position:fixed;inset:0;z-index:-1;pointer-events:none;';
+          document.body.insertBefore(bgEl, document.body.firstChild);
+        }
+        bgEl.style.backgroundImage = selected.css;
+      } else {
+        const bgEl = document.getElementById('builtin-bg-layer');
+        if (bgEl) bgEl.remove();
+      }
+    } else {
+      const bgEl = document.getElementById('builtin-bg-layer');
+      if (bgEl) bgEl.remove();
+    }
     
     // 自定义背景
     if (theme.style === 'custom' && theme.customBackground) {
@@ -138,7 +197,13 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const setColorScheme = setThemeColor;
 
   const setThemeStyle = useCallback((style: ThemeStyle) => {
-    saveTheme({ ...theme, style });
+    // 切换风格时：如果不是 custom，清掉 customBackground；保留 backgroundId 由 UI 选择
+    if (style !== 'custom') {
+      const { customBackground: _, ...rest } = theme;
+      saveTheme({ ...rest, style, backgroundId: theme.backgroundId || undefined } as ThemeConfig);
+    } else {
+      saveTheme({ ...theme, style });
+    }
   }, [theme, saveTheme]);
 
   const setStyleTheme = setThemeStyle;
@@ -150,6 +215,22 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     } else {
       saveTheme({ ...theme, customBackground: bg });
     }
+  }, [theme, saveTheme]);
+
+  // 选择内置背景（自然/现代/南哪 风格下）
+  const setBackgroundId = useCallback((id: string | null) => {
+    if (id === null) {
+      const { backgroundId: _, ...rest } = theme;
+      saveTheme(rest as ThemeConfig);
+    } else {
+      saveTheme({ ...theme, backgroundId: id });
+    }
+  }, [theme, saveTheme]);
+
+  // 原子化设置自定义背景：一次更新避免 setCustomBackground + setStyleTheme 互相覆盖
+  const applyCustomBackground = useCallback((bg: string) => {
+    const { backgroundId: _, ...rest } = theme;
+    saveTheme({ ...rest, customBackground: bg, style: 'custom' } as ThemeConfig);
   }, [theme, saveTheme]);
 
   const setCustomBlur = useCallback((blur: number) => {
@@ -172,6 +253,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     styleTheme: theme.style,
     customBackground: theme.customBackground,
     blurLevel: theme.customBlur,
+    backgroundId: theme.backgroundId,
     setColorScheme,
     setStyleTheme,
     setCustomBackground,
@@ -180,6 +262,8 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     setThemeStyle,
     setCustomBlur,
     setCustomOverlay,
+    setBackgroundId,
+    applyCustomBackground,
     resetTheme,
   };
 
