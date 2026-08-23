@@ -197,20 +197,20 @@ function parseTimetableHtml(html: string, semesterStart: string, semesterWeeks: 
     const timeText = tdText(tds[6]);
     if (!courseName || !timeText) continue;
 
-    // 时间字段可能多条（逗号分隔），如 "周二 3-4节 1-18周 苏教A207,周四 3-4节 1-18周 苏教A207"
-    const timeParts = timeText.split(/[,，]/);
-    for (const part of timeParts) {
-      const m = part.match(/(周[一二三四五六日天])\s*(\d{1,2})-(\d{1,2})节\s*([0-9,，\-]+周(?:\([单双]\))?)\s*([^\s]+)/);
-      if (!m) continue; // 自由时间等跳过
-      const weekday = parseWeekday(m[1]);
+    // 全局匹配所有上课时间（同一门课可能多个时段，逗号分隔）
+    // 周次列表（如 "2周,6周,10周,14周"）由 [0-9,，\-]+ 整体匹配，不会被误切
+    const timeRe = /(周[一二三四五六日天])\s*(\d{1,2})-(\d{1,2})节\s*((?:[0-9,，\-]+周(?:\([单双]\))?)(?:[，,][0-9,，\-]+周(?:\([单双]\))?)*)\s+([^\s，,]+)/g;
+    let tm;
+    while ((tm = timeRe.exec(timeText)) !== null) {
+      const weekday = parseWeekday(tm[1]);
       if (weekday === null) continue;
-      const startSec = parseInt(m[2], 10);
-      const endSec = Math.max(parseInt(m[3], 10), startSec);
-      const weeks = expandWeeks(m[4], semesterWeeks);
+      const startSec = parseInt(tm[2], 10);
+      const endSec = Math.max(parseInt(tm[3], 10), startSec);
+      const weeks = expandWeeks(tm[4], semesterWeeks);
       if (weeks.length === 0) continue;
       const st = sectionTime(startSec);
       const et = sectionTime(endSec);
-      const location = m[5];
+      const location = tm[5];
       const descParts: string[] = [];
       if (teacher) descParts.push(`教师：${teacher}`);
       if (location) descParts.push(`地点：${location}`);
@@ -220,7 +220,7 @@ function parseTimetableHtml(html: string, semesterStart: string, semesterWeeks: 
         const mo = String(date.getMonth() + 1).padStart(2, '0');
         const d = String(date.getDate()).padStart(2, '0');
         tasks.push({
-          title: courseName.replace(/（.*?）|\(.*?\)/g, '').trim(),
+          title: courseName.replace(/（.*?）|\(.*?\)/g, '').replace(/\d+班$/g, '').trim(),
           description: descParts.join('；'),
           task_type: 'course',
           priority: 'medium',
@@ -236,15 +236,13 @@ function parseTimetableHtml(html: string, semesterStart: string, semesterWeeks: 
 
 /** 纯文本课程表解析："周一 7-8节 2周,6周,10周,14周 苏教B201 课程名" */
 function parseTimetableText(text: string, semesterStart: string, semesterWeeks: number): ParsedTask[] | null {
-  // 按常见分隔切分条目
-  const segments = text.split(/[；;。\n]+/).map(s => s.trim()).filter(Boolean);
   let courseCount = 0;
   const tasks: ParsedTask[] = [];
 
-  for (const seg of segments) {
-    // 匹配 "周X X-Y节 X周 地点 [课程名]"（课程名可省略）
-    const m = seg.match(/(周[一二三四五六日天])\s*(\d{1,2})-(\d{1,2})节\s*([0-9,，\-]+周(?:\([单双]\))?)\s*([^\s，,]+)\s*(.*)/);
-    if (!m) continue;
+  // 全局匹配所有课程时段；周次列表（2周,6周,10周,14周）由 [0-9,，\-]+ 整体匹配，不会被误切
+  const re = /(周[一二三四五六日天])\s*(\d{1,2})-(\d{1,2})节\s*((?:[0-9,，\-]+周(?:\([单双]\))?)(?:[，,][0-9,，\-]+周(?:\([单双]\))?)*)\s+([^\s，,]+)\s*(.*)/g;
+  let m;
+  while ((m = re.exec(text)) !== null) {
     courseCount++;
     const weekday = parseWeekday(m[1]);
     if (weekday === null) continue;
@@ -256,8 +254,8 @@ function parseTimetableText(text: string, semesterStart: string, semesterWeeks: 
     const et = sectionTime(endSec);
     const location = m[5];
     const rest = (m[6] || '').trim();
-    // 课程名：优先用行尾内容，否则用地点前一节
-    const title = rest.replace(/（.*?）|\(.*?\)/g, '').trim() || '课程';
+    // 课程名：优先用匹配点后的内容，否则用地点
+    const title = rest.replace(/（.*?）|\(.*?\)/g, '').replace(/\d+班$/g, '').trim() || '课程';
     const descParts: string[] = [];
     if (location) descParts.push(`地点：${location}`);
     for (const w of weeks) {
