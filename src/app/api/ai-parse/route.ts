@@ -154,11 +154,16 @@ function parseWeekday(v: number | string | undefined): number | null {
   return !isNaN(n) && n >= 0 && n <= 6 ? n : null;
 }
 
-/** 计算第 weekNo 周 weekday 对应的日期（semesterStart 为第1周周一） */
-function weekDate(semesterStart: string, weekNo: number, weekday: number): Date {
-  const base = new Date(semesterStart + 'T00:00:00+08:00');
-  const days = (weekNo - 1) * 7 + weekday;
-  return new Date(base.getTime() + days * 86400000);
+/** 计算第 weekNo 周 weekday 对应的日期字符串 YYYY-MM-DD（semesterStart 为第1周周一，纯 UTC 运算避免服务器时区偏移） */
+function weekDateStr(semesterStart: string, weekNo: number, weekday: number): string {
+  const [y, m, d] = semesterStart.split('-').map(Number);
+  // 用 Date.UTC 做纯日期运算（不受服务器本地时区影响）
+  const base = Date.UTC(y, m - 1, d);
+  const target = new Date(base + ((weekNo - 1) * 7 + weekday) * 86400000);
+  const yy = target.getUTCFullYear();
+  const mm = String(target.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(target.getUTCDate()).padStart(2, '0');
+  return `${yy}-${mm}-${dd}`;
 }
 
 /** 剥离 HTML 标签，提取可见文本（应对用户直接粘贴网页表格 HTML） */
@@ -216,18 +221,15 @@ function parseTimetableHtml(html: string, semesterStart: string, semesterWeeks: 
       if (teacher) descParts.push(`教师：${teacher}`);
       if (location) descParts.push(`地点：${location}`);
       for (const w of weeks) {
-        const date = weekDate(semesterStart, w, weekday);
-        const y = date.getFullYear();
-        const mo = String(date.getMonth() + 1).padStart(2, '0');
-        const d = String(date.getDate()).padStart(2, '0');
+        const dateStr = weekDateStr(semesterStart, w, weekday);
         tasks.push({
           title: courseName.replace(/（.*?）|\(.*?\)/g, '').replace(/\d+班$/g, '').trim(),
           description: descParts.join('；'),
           task_type: 'course',
           priority: 'medium',
           importance: 'important',
-          start_time: `${y}-${mo}-${d}T${st.start}:00+08:00`,
-          end_time: `${y}-${mo}-${d}T${et.end}:00+08:00`,
+          start_time: `${dateStr}T${st.start}:00+08:00`,
+          end_time: `${dateStr}T${et.end}:00+08:00`,
         });
       }
     }
@@ -260,18 +262,15 @@ function parseTimetableText(text: string, semesterStart: string, semesterWeeks: 
     const descParts: string[] = [];
     if (location) descParts.push(`地点：${location}`);
     for (const w of weeks) {
-      const date = weekDate(semesterStart, w, weekday);
-      const y = date.getFullYear();
-      const mo = String(date.getMonth() + 1).padStart(2, '0');
-      const d = String(date.getDate()).padStart(2, '0');
+      const dateStr = weekDateStr(semesterStart, w, weekday);
       tasks.push({
         title,
         description: descParts.join('；'),
         task_type: 'course',
         priority: 'medium',
         importance: 'important',
-        start_time: `${y}-${mo}-${d}T${st.start}:00+08:00`,
-        end_time: `${y}-${mo}-${d}T${et.end}:00+08:00`,
+        start_time: `${dateStr}T${st.start}:00+08:00`,
+        end_time: `${dateStr}T${et.end}:00+08:00`,
       });
     }
   }
@@ -453,15 +452,12 @@ export async function POST(request: NextRequest) {
         const loc = raw.location ? `地点：${raw.location}` : '';
         const desc = [raw.description, loc].filter(Boolean).join('；');
         for (const w of weeks) {
-          const date = weekDate(semesterStart, w, weekday);
-          const y = date.getFullYear();
-          const m = String(date.getMonth() + 1).padStart(2, '0');
-          const d = String(date.getDate()).padStart(2, '0');
+          const dateStr = weekDateStr(semesterStart, w, weekday);
           results.push({
             ...base,
             description: desc,
-            start_time: `${y}-${m}-${d}T${st.start}:00+08:00`,
-            end_time: `${y}-${m}-${d}T${et.end}:00+08:00`,
+            start_time: `${dateStr}T${st.start}:00+08:00`,
+            end_time: `${dateStr}T${et.end}:00+08:00`,
           });
         }
       } else {
