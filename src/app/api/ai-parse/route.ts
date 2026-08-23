@@ -175,6 +175,111 @@ function stripHtml(input: string): string {
     .trim();
 }
 
+/** 从 HTML 的 td 中提取文本（优先 title 属性，否则去标签） */
+function tdText(td: string): string {
+  const titleMatch = td.match(/title="([^"]*)"/);
+  if (titleMatch) return titleMatch[1].trim();
+  return td.replace(/<[^>]+>/g, '').replace(/&nbsp;/gi, ' ').trim();
+}
+
+/** 课程表 HTML 表格解析：<tr> 行 → td[2]课程名, td[4]教师, td[6]时间 */
+function parseTimetableHtml(html: string, semesterStart: string, semesterWeeks: number): ParsedTask[] | null {
+  const rows = html.match(/<tr[\s\S]*?<\/tr>/gi);
+  if (!rows || rows.length === 0) return null;
+
+  const tasks: ParsedTask[] = [];
+  for (const row of rows) {
+    const tds = row.match(/<td[\s\S]*?<\/td>/gi) || [];
+    if (tds.length < 7) continue;
+
+    const courseName = tdText(tds[2]);
+    const teacher = tdText(tds[4]);
+    const timeText = tdText(tds[6]);
+    if (!courseName || !timeText) continue;
+
+    // 时间字段可能多条（逗号分隔），如 "周二 3-4节 1-18周 苏教A207,周四 3-4节 1-18周 苏教A207"
+    const timeParts = timeText.split(/[,，]/);
+    for (const part of timeParts) {
+      const m = part.match(/(周[一二三四五六日天])\s*(\d{1,2})-(\d{1,2})节\s*([0-9,，\-]+周(?:\([单双]\))?)\s*([^\s]+)/);
+      if (!m) continue; // 自由时间等跳过
+      const weekday = parseWeekday(m[1]);
+      if (weekday === null) continue;
+      const startSec = parseInt(m[2], 10);
+      const endSec = Math.max(parseInt(m[3], 10), startSec);
+      const weeks = expandWeeks(m[4], semesterWeeks);
+      if (weeks.length === 0) continue;
+      const st = sectionTime(startSec);
+      const et = sectionTime(endSec);
+      const location = m[5];
+      const descParts: string[] = [];
+      if (teacher) descParts.push(`教师：${teacher}`);
+      if (location) descParts.push(`地点：${location}`);
+      for (const w of weeks) {
+        const date = weekDate(semesterStart, w, weekday);
+        const y = date.getFullYear();
+        const mo = String(date.getMonth() + 1).padStart(2, '0');
+        const d = String(date.getDate()).padStart(2, '0');
+        tasks.push({
+          title: courseName.replace(/（.*?）|\(.*?\)/g, '').trim(),
+          description: descParts.join('；'),
+          task_type: 'course',
+          priority: 'medium',
+          importance: 'important',
+          start_time: `${y}-${mo}-${d}T${st.start}:00+08:00`,
+          end_time: `${y}-${mo}-${d}T${et.end}:00+08:00`,
+        });
+      }
+    }
+  }
+  return tasks.length > 0 ? tasks : null;
+}
+
+/** 纯文本课程表解析："周一 7-8节 2周,6周,10周,14周 苏教B201 课程名" */
+function parseTimetableText(text: string, semesterStart: string, semesterWeeks: number): ParsedTask[] | null {
+  // 按常见分隔切分条目
+  const segments = text.split(/[；;。\n]+/).map(s => s.trim()).filter(Boolean);
+  let courseCount = 0;
+  const tasks: ParsedTask[] = [];
+
+  for (const seg of segments) {
+    // 匹配 "周X X-Y节 X周 地点 [课程名]"（课程名可省略）
+    const m = seg.match(/(周[一二三四五六日天])\s*(\d{1,2})-(\d{1,2})节\s*([0-9,，\-]+周(?:\([单双]\))?)\s*([^\s，,]+)\s*(.*)/);
+    if (!m) continue;
+    courseCount++;
+    const weekday = parseWeekday(m[1]);
+    if (weekday === null) continue;
+    const startSec = parseInt(m[2], 10);
+    const endSec = Math.max(parseInt(m[3], 10), startSec);
+    const weeks = expandWeeks(m[4], semesterWeeks);
+    if (weeks.length === 0) continue;
+    const st = sectionTime(startSec);
+    const et = sectionTime(endSec);
+    const location = m[5];
+    const rest = (m[6] || '').trim();
+    // 课程名：优先用行尾内容，否则用地点前一节
+    const title = rest.replace(/（.*?）|\(.*?\)/g, '').trim() || '课程';
+    const descParts: string[] = [];
+    if (location) descParts.push(`地点：${location}`);
+    for (const w of weeks) {
+      const date = weekDate(semesterStart, w, weekday);
+      const y = date.getFullYear();
+      const mo = String(date.getMonth() + 1).padStart(2, '0');
+      const d = String(date.getDate()).padStart(2, '0');
+      tasks.push({
+        title,
+        description: descParts.join('；'),
+        task_type: 'course',
+        priority: 'medium',
+        importance: 'important',
+        start_time: `${y}-${mo}-${d}T${st.start}:00+08:00`,
+        end_time: `${y}-${mo}-${d}T${et.end}:00+08:00`,
+      });
+    }
+  }
+
+  return courseCount > 0 ? tasks : null;
+}
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
@@ -186,6 +291,37 @@ export async function POST(request: NextRequest) {
 
     // 剥离 HTML（如果是网页表格）并压缩空白
     const text = stripHtml(rawText);
+
+    // 开学日期与学期周数（前端可选传入，默认 2026-08-24 第1周周一，18周）
+    const semesterStart = body?.semesterStart || '2026-08-24';
+    const semesterWeeks = body?.weeks || 18;
+
+    // 优先使用确定性解析：课程表 HTML 表格 / 纯文本课程表（不依赖 AI，100% 稳定）
+    const htmlTasks = parseTimetableHtml(rawText, semesterStart, semesterWeeks);
+    if (htmlTasks && htmlTasks.length > 0) {
+      const seen = new Set<string>();
+      const deduped = htmlTasks.filter(t => {
+        const key = `${t.title}|${t.start_time}|${t.end_time}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+      deduped.sort((a, b) => (a.start_time || '').localeCompare(b.start_time || ''));
+      return NextResponse.json({ tasks: deduped, source: 'timetable-html' });
+    }
+
+    const textTasks = parseTimetableText(text, semesterStart, semesterWeeks);
+    if (textTasks && textTasks.length > 0) {
+      const seen = new Set<string>();
+      const deduped = textTasks.filter(t => {
+        const key = `${t.title}|${t.start_time}|${t.end_time}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+      deduped.sort((a, b) => (a.start_time || '').localeCompare(b.start_time || ''));
+      return NextResponse.json({ tasks: deduped, source: 'timetable-text' });
+    }
 
     // 提取转发头
     let customHeaders: Record<string, string> = {};
@@ -218,9 +354,6 @@ export async function POST(request: NextRequest) {
 
     const client = new LLMClient(config, customHeaders);
     
-    // 开学日期与学期周数（前端可选传入，默认 2026-08-24 第1周周一，18周）
-    const semesterStart = body?.semesterStart || '2026-08-24';
-    const semesterWeeks = body?.weeks || 18;
     const now = new Date().toISOString();
     const userPrompt = `当前时间：${now}
 
