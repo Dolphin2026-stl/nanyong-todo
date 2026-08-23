@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { LLMClient, Config, HeaderUtils } from 'coze-coding-dev-sdk';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -321,36 +320,21 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ tasks: deduped, source: 'timetable-text' });
     }
 
-    // 提取转发头
-    let customHeaders: Record<string, string> = {};
-    try {
-      const extracted = HeaderUtils.extractForwardHeaders(request.headers);
-      if (extracted && typeof extracted === 'object') {
-        customHeaders = extracted as Record<string, string>;
-      }
-    } catch {
-      customHeaders = {};
-    }
-    
-    // 构建配置
+    // 构建 AI 配置（直接调用 OpenAI 兼容接口，不依赖 Coze SDK）
     const apiKey = body?.apiKey;
     const baseUrl = body?.baseUrl;
     const model = body?.model;
     
-    let config: Config;
-    if (apiKey && baseUrl) {
-      config = new Config({
-        apiKey: String(apiKey),
-        baseUrl: String(baseUrl),
-        timeout: 60000,
-      });
-    } else {
-      config = new Config({
-        timeout: 60000,
-      });
+    const aiBaseUrl = (baseUrl as string) || process.env.AI_BASE_URL || 'https://api.openai.com/v1';
+    const aiApiKey = (apiKey as string) || process.env.AI_API_KEY || '';
+    const aiModel = (model as string) || process.env.AI_MODEL || 'gpt-4o-mini';
+    
+    if (!aiApiKey) {
+      return NextResponse.json(
+        { error: '未配置 AI API Key，请在设置中填写或使用课程表导入' },
+        { status: 400 }
+      );
     }
-
-    const client = new LLMClient(config, customHeaders);
     
     const now = new Date().toISOString();
     const userPrompt = `当前时间：${now}
@@ -365,22 +349,37 @@ export async function POST(request: NextRequest) {
 请直接返回 JSON 数组，不要包含任何额外文字。`;
 
     const messages = [
-      { role: 'system' as const, content: systemPrompt },
-      { role: 'user' as const, content: userPrompt },
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: userPrompt },
     ];
 
-    // 使用 stream 方式收集完整响应（invoke 在 Next.js 环境有兼容性问题）
-    const stream = client.stream(messages, {
-      model: model || 'doubao-seed-2-0-mini-260215',
-      temperature: 0.2,
+    // 直接调用 OpenAI 兼容接口（支持 OpenAI/智谱/文心/豆包等）
+    const aiRes = await fetch(`${aiBaseUrl.replace(/\/+$/, '')}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${aiApiKey}`,
+      },
+      body: JSON.stringify({
+        model: aiModel,
+        messages,
+        temperature: 0.2,
+        max_tokens: 4096,
+      }),
+      signal: AbortSignal.timeout(60000),
     });
-    
-    let rawContent = '';
-    for await (const chunk of stream) {
-      if (chunk && typeof chunk.content !== 'undefined' && chunk.content !== null) {
-        rawContent += chunk.content.toString();
-      }
+
+    if (!aiRes.ok) {
+      const errText = await aiRes.text().catch(() => '');
+      console.error('AI 接口错误:', aiRes.status, errText.slice(0, 300));
+      return NextResponse.json(
+        { error: `AI 接口调用失败 (${aiRes.status})，请检查 API Key 和 Base URL 配置` },
+        { status: 500 }
+      );
     }
+
+    const aiData = await aiRes.json();
+    const rawContent = aiData?.choices?.[0]?.message?.content || '';
 
     if (!rawContent || typeof rawContent !== 'string') {
       return NextResponse.json({ error: 'AI 返回内容无效' }, { status: 500 });

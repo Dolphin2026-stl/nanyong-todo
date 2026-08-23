@@ -1,14 +1,11 @@
 'use client';
 
 import { createContext, useContext, useState, useCallback, ReactNode } from 'react';
-import { getSupabaseBrowserClientWithRetry } from '@/lib/supabase-browser';
 
-/** 获取当前登录用户的 access token，用于 API 认证头 */
+/** 获取当前登录用户的 access token（本地版从 localStorage 读取） */
 async function getSessionToken(): Promise<string | undefined> {
   try {
-    const supabase = await getSupabaseBrowserClientWithRetry();
-    const { data: { session } } = await supabase.auth.getSession();
-    return session?.access_token || undefined;
+    return localStorage.getItem('nanyong-todo-token') || undefined;
   } catch {
     return undefined;
   }

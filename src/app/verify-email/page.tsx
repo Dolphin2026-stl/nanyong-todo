@@ -2,7 +2,6 @@
 
 import { useEffect, useState, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import { AppLogo, SuccessIllustration } from '@/components/illustrations';
 import Link from 'next/link';
 
@@ -13,32 +12,11 @@ function VerifyEmailContent() {
   const [errorMsg, setErrorMsg] = useState('');
 
   useEffect(() => {
-    const verifyEmail = async () => {
-      const token = searchParams.get('token');
-      const type = searchParams.get('type');
-      
-      if (!token || type !== 'signup') {
-        setStatus('error');
-        setErrorMsg('无效的验证链接');
-        return;
-      }
-
-      try {
-        const supabase = createBrowserSupabaseClient();
-        const { error } = await supabase.auth.verifyOtp({
-          token_hash: token,
-          type: 'signup',
-        });
-
-        if (error) throw error;
-        setStatus('success');
-      } catch (err) {
-        setStatus('error');
-        setErrorMsg(err instanceof Error ? err.message : '验证失败');
-      }
-    };
-
-    verifyEmail();
+    // 本地版无需邮箱验证，直接标记成功
+    const t = setTimeout(() => {
+      setStatus('success');
+    }, 1200);
+    return () => clearTimeout(t);
   }, [searchParams]);
 
   return (

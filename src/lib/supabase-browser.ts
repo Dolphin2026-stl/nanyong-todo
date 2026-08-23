@@ -1,69 +1,23 @@
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
+/**
+ * 本地版：不再使用 Supabase，此文件保留为空壳兼容（避免旧引用报错）
+ */
 
-let browserClient: SupabaseClient | null = null;
-let configPromise: Promise<{ url: string; anonKey: string }> | null = null;
-
-async function fetchConfig(): Promise<{ url: string; anonKey: string }> {
-  if (configPromise) return configPromise;
-  
-  configPromise = fetch('/api/supabase-config')
-    .then(res => {
-      if (!res.ok) throw new Error('获取Supabase配置失败');
-      return res.json();
-    })
-    .catch(err => {
-      configPromise = null;
-      throw err;
-    });
-  
-  return configPromise;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function getSupabaseBrowserClient(): any {
+  throw new Error('本地版不使用 Supabase');
 }
 
-export function getSupabaseBrowserClient(): SupabaseClient {
-  if (!browserClient) {
-    throw new Error('Supabase 配置尚未加载，请使用 getSupabaseBrowserClientWithRetry');
-  }
-  return browserClient;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function createBrowserSupabaseClient(): any {
+  throw new Error('本地版不使用 Supabase');
 }
 
-export function createBrowserSupabaseClient(): SupabaseClient {
-  if (!browserClient) {
-    throw new Error('Supabase 配置尚未加载');
-  }
-  return browserClient;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export async function getSupabaseBrowserClientAsync(): Promise<any> {
+  throw new Error('本地版不使用 Supabase');
 }
 
-export async function getSupabaseBrowserClientAsync(): Promise<SupabaseClient> {
-  if (browserClient) return browserClient;
-  
-  const config = await fetchConfig();
-  browserClient = createClient(config.url, config.anonKey, {
-    auth: {
-      persistSession: true,
-      autoRefreshToken: true,
-      detectSessionInUrl: true,
-    },
-  });
-  
-  return browserClient;
-}
-
-export async function getSupabaseBrowserClientWithRetry(
-  maxRetries = 3,
-  delay = 500
-): Promise<SupabaseClient> {
-  let lastError: unknown;
-  
-  for (let i = 0; i < maxRetries; i++) {
-    try {
-      return await getSupabaseBrowserClientAsync();
-    } catch (err) {
-      lastError = err;
-      if (i < maxRetries - 1) {
-        await new Promise(resolve => setTimeout(resolve, delay * (i + 1)));
-      }
-    }
-  }
-  
-  throw lastError;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export async function getSupabaseBrowserClientWithRetry(): Promise<any> {
+  throw new Error('本地版不使用 Supabase');
 }

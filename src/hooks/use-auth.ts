@@ -1,37 +1,75 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { getSupabaseBrowserClientWithRetry } from '@/lib/supabase-browser';
-import type { User, Session } from '@supabase/supabase-js';
+
+const TOKEN_KEY = 'nanyong-todo-token';
+
+interface LocalUser {
+  id: string;
+  email: string;
+  nickname: string | null;
+  avatar_url: string | null;
+  school: string | null;
+  created_at: string;
+}
 
 interface AuthState {
-  user: User | null;
-  session: Session | null;
+  user: LocalUser | null;
   isLoading: boolean;
   isAuthenticated: boolean;
+}
+
+function getStoredToken(): string | null {
+  try {
+    return localStorage.getItem(TOKEN_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function storeToken(token: string | null): void {
+  try {
+    if (token) localStorage.setItem(TOKEN_KEY, token);
+    else localStorage.removeItem(TOKEN_KEY);
+  } catch {
+    // ignore
+  }
+}
+
+async function fetchUser(token: string): Promise<LocalUser | null> {
+  try {
+    const res = await fetch('/api/local-auth/me', {
+      headers: { 'x-session': token },
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data.user || null;
+  } catch {
+    return null;
+  }
 }
 
 export function useAuth() {
   const [state, setState] = useState<AuthState>({
     user: null,
-    session: null,
     isLoading: true,
     isAuthenticated: false,
   });
 
   const refreshSession = useCallback(async () => {
     try {
-      const supabase = await getSupabaseBrowserClientWithRetry();
-      const { data: { session } } = await supabase.auth.getSession();
-      
+      const token = getStoredToken();
+      if (!token) {
+        setState({ user: null, isLoading: false, isAuthenticated: false });
+        return null;
+      }
+      const user = await fetchUser(token);
       setState({
-        user: session?.user || null,
-        session,
+        user,
         isLoading: false,
-        isAuthenticated: !!session,
+        isAuthenticated: !!user,
       });
-      
-      return session;
+      return user;
     } catch {
       setState(prev => ({ ...prev, isLoading: false }));
       return null;
@@ -40,142 +78,96 @@ export function useAuth() {
 
   useEffect(() => {
     let mounted = true;
-    
     async function init() {
-      try {
-        const supabase = await getSupabaseBrowserClientWithRetry();
-        
-        // 获取当前会话
-        const { data: { session } } = await supabase.auth.getSession();
-        
-        if (mounted) {
-          setState({
-            user: session?.user || null,
-            session,
-            isLoading: false,
-            isAuthenticated: !!session,
-          });
-        }
-        
-        // 监听认证状态变化
-        const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, newSession) => {
-          if (mounted) {
-            setState({
-              user: newSession?.user || null,
-              session: newSession,
-              isLoading: false,
-              isAuthenticated: !!newSession,
-            });
-          }
+      const token = getStoredToken();
+      if (!token) {
+        if (mounted) setState({ user: null, isLoading: false, isAuthenticated: false });
+        return;
+      }
+      const user = await fetchUser(token);
+      if (mounted) {
+        setState({
+          user,
+          isLoading: false,
+          isAuthenticated: !!user,
         });
-        
-        return () => {
-          subscription.unsubscribe();
-        };
-      } catch {
-        if (mounted) {
-          setState(prev => ({ ...prev, isLoading: false }));
-        }
       }
     }
-    
     init();
     return () => { mounted = false; };
   }, []);
 
   const signIn = useCallback(async (email: string, password: string) => {
-    const supabase = await getSupabaseBrowserClientWithRetry();
-    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-    
-    if (error) throw error;
-    
-    // 立即更新状态
-    if (data.session) {
-      setState({
-        user: data.session.user,
-        session: data.session,
-        isLoading: false,
-        isAuthenticated: true,
-      });
+    const res = await fetch('/api/local-auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.error || '登录失败');
     }
-    
+    storeToken(data.session.access_token);
+    setState({
+      user: data.user,
+      isLoading: false,
+      isAuthenticated: true,
+    });
     return data;
   }, []);
 
   const signUp = useCallback(async (email: string, password: string, nickname?: string) => {
-    const supabase = await getSupabaseBrowserClientWithRetry();
-    const { data, error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        data: {
-          nickname: nickname || email.split('@')[0],
-        },
-      },
+    const res = await fetch('/api/local-auth/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password, nickname }),
     });
-    
-    if (error) throw error;
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.error || '注册失败');
+    }
+    storeToken(data.session.access_token);
+    setState({
+      user: data.user,
+      isLoading: false,
+      isAuthenticated: true,
+    });
     return data;
   }, []);
 
   const signOut = useCallback(async () => {
-    const supabase = await getSupabaseBrowserClientWithRetry();
-    const { error } = await supabase.auth.signOut();
-    
-    if (error) throw error;
-    
+    storeToken(null);
     setState({
       user: null,
-      session: null,
       isLoading: false,
       isAuthenticated: false,
     });
   }, []);
 
   const resetPassword = useCallback(async (email: string) => {
-    const supabase = await getSupabaseBrowserClientWithRetry();
-    const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: typeof window !== 'undefined' ? `${window.location.origin}/reset-password` : undefined,
-    });
-    
-    if (error) throw error;
+    // 本地版不发送邮件，提示用户联系管理员或直接重设
+    throw new Error('本地版暂不支持密码找回，请直接在数据文件中重置');
   }, []);
 
-  const getAccessToken = useCallback(async () => {
-    const supabase = await getSupabaseBrowserClientWithRetry();
-    const { data: { session } } = await supabase.auth.getSession();
-    return session?.access_token || null;
+  const getAccessToken = useCallback(async (): Promise<string | null> => {
+    return getStoredToken();
   }, []);
 
   const updateProfile = useCallback(async (data: { nickname?: string; school?: string }) => {
-    const supabase = await getSupabaseBrowserClientWithRetry();
-    const { data: userData, error } = await supabase.auth.updateUser({
-      data,
+    const token = getStoredToken();
+    if (!token) throw new Error('未登录');
+    const res = await fetch('/api/local-auth/me', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', 'x-session': token },
+      body: JSON.stringify(data),
     });
-    
-    if (error) throw error;
-    
-    // 同步更新 user_profiles 表
-    if (userData.user) {
-      const { error: profileError } = await supabase
-        .from('user_profiles')
-        .upsert({
-          id: userData.user.id,
-          nickname: data.nickname || null,
-          school: data.school || null,
-          updated_at: new Date().toISOString(),
-        }, { onConflict: 'id' });
-      
-      if (profileError) throw profileError;
-    }
-    
-    // 更新本地状态
+    const result = await res.json();
+    if (!res.ok) throw new Error(result.error || '更新资料失败');
     setState(prev => ({
       ...prev,
-      user: userData.user,
+      user: result.user,
     }));
-    
-    return userData;
+    return result;
   }, []);
 
   return {

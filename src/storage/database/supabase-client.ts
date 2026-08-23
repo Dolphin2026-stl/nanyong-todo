@@ -1,128 +1,408 @@
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import { execSync } from 'child_process';
-import { getReportBuffer, createWrappedFetch } from 'coze-coding-dev-sdk';
+/**
+ * 本地版数据访问兼容层
+ * 对外保持 getSupabaseClient(token) 接口不变，内部使用本地 JSON 存储。
+ * 这样所有 API routes 无需修改即可在本地运行。
+ * 仅模拟本项目用到的 Supabase 查询链（from/select/eq/in/order/insert/update/delete/single）。
+ */
+import { loadDb, saveDb, uuid, nowIso } from './local-db';
+import { getUserFromToken } from './local-auth';
 
-let envLoaded = false;
-
-interface SupabaseCredentials {
-  url: string;
-  anonKey: string;
+export interface SupabaseResponse<T> {
+  data: T | null;
+  error: { message: string } | null;
 }
 
-function loadEnv(): void {
-  if (envLoaded || (process.env.COZE_SUPABASE_URL && process.env.COZE_SUPABASE_ANON_KEY)) {
-    return;
+type Row = Record<string, unknown>;
+
+class LocalQueryBuilder {
+  private table: string;
+  private filters: { field: string; value: unknown; op: 'eq' | 'in' | 'neq' }[] = [];
+  private orderField: string | null = null;
+  private orderAscending = true;
+  private orderNullsFirst = false;
+
+  constructor(table: string) {
+    this.table = table;
   }
 
-  try {
-    try {
-      require('dotenv').config();
-      if (process.env.COZE_SUPABASE_URL && process.env.COZE_SUPABASE_ANON_KEY) {
-        envLoaded = true;
-        return;
-      }
-    } catch {
-      // dotenv not available
+  select(_cols = '*'): this {
+    return this;
+  }
+
+  eq(field: string, value: unknown): this {
+    this.filters.push({ field, value, op: 'eq' });
+    return this;
+  }
+
+  in(field: string, values: unknown[]): this {
+    this.filters.push({ field, value: values, op: 'in' });
+    return this;
+  }
+
+  neq(field: string, value: unknown): this {
+    this.filters.push({ field, value, op: 'neq' });
+    return this;
+  }
+
+  order(field: string, opts?: { ascending?: boolean; nullsFirst?: boolean }): this {
+    this.orderField = field;
+    this.orderAscending = opts?.ascending ?? true;
+    this.orderNullsFirst = opts?.nullsFirst ?? false;
+    return this;
+  }
+
+  private getRows(): Row[] {
+    const db = loadDb();
+    let rows: Row[];
+    if (this.table === 'tasks') rows = [...db.tasks] as unknown as Row[];
+    else if (this.table === 'tags') rows = [...db.tags] as unknown as Row[];
+    else if (this.table === 'task_tags') rows = [...db.task_tags] as unknown as Row[];
+    else rows = [];
+
+    for (const f of this.filters) {
+      rows = rows.filter(row => {
+        const val = (row as Record<string, unknown>)[f.field];
+        if (f.op === 'eq') return val === f.value;
+        if (f.op === 'neq') return val !== f.value;
+        if (f.op === 'in') {
+          const arr = f.value as unknown[];
+          return arr.includes(val);
+        }
+        return true;
+      });
     }
+    return rows;
+  }
 
-    const pythonCode = `
-import os
-import sys
-try:
-    from coze_workload_identity import Client
-    client = Client()
-    env_vars = client.get_project_env_vars()
-    client.close()
-    for env_var in env_vars:
-        print(f"{env_var.key}={env_var.value}")
-except Exception as e:
-    print(f"# Error: {e}", file=sys.stderr)
-`;
-
-    const output = execSync(`python3 -c '${pythonCode.replace(/'/g, "'\"'\"'")}'`, {
-      encoding: 'utf-8',
-      timeout: 10000,
-      stdio: ['pipe', 'pipe', 'pipe'],
+  private sortRows(rows: Row[]): Row[] {
+    if (!this.orderField) return rows;
+    return rows.sort((a, b) => {
+      const va = (a as Record<string, unknown>)[this.orderField!];
+      const vb = (b as Record<string, unknown>)[this.orderField!];
+      if (va === null || va === undefined) return this.orderNullsFirst ? -1 : 1;
+      if (vb === null || vb === undefined) return this.orderNullsFirst ? 1 : -1;
+      let cmp: number;
+      if (typeof va === 'string' && typeof vb === 'string') {
+        const ta = Date.parse(va);
+        const tb = Date.parse(vb);
+        if (!isNaN(ta) && !isNaN(tb)) cmp = ta - tb;
+        else cmp = va.localeCompare(vb);
+      } else {
+        cmp = va > vb ? 1 : va < vb ? -1 : 0;
+      }
+      return this.orderAscending ? cmp : -cmp;
     });
+  }
 
-    const lines = output.trim().split('\n');
-    for (const line of lines) {
-      if (line.startsWith('#')) continue;
-      const eqIndex = line.indexOf('=');
-      if (eqIndex > 0) {
-        const key = line.substring(0, eqIndex);
-        let value = line.substring(eqIndex + 1);
-        if ((value.startsWith("'") && value.endsWith("'")) ||
-            (value.startsWith('"') && value.endsWith('"'))) {
-          value = value.slice(1, -1);
-        }
-        if (!process.env[key]) {
-          process.env[key] = value;
-        }
+  async then(resolve: (value: SupabaseResponse<Row[]>) => void): Promise<void> {
+    let rows = this.getRows();
+    rows = this.sortRows(rows);
+    resolve({ data: rows, error: null });
+  }
+}
+
+class LocalInsertBuilder {
+  private table: string;
+  private values: Row[] = [];
+
+  constructor(table: string, values: Row | Row[]) {
+    this.table = table;
+    this.values = Array.isArray(values) ? values : [values];
+  }
+
+  select(_cols = '*'): LocalInsertBuilderWithSelect {
+    return new LocalInsertBuilderWithSelect(this.table, this.values);
+  }
+
+  async then(resolve: (value: SupabaseResponse<Row[]>) => void): Promise<void> {
+    const db = loadDb();
+    const inserted: Row[] = [];
+    const now = nowIso();
+    for (const v of this.values) {
+      const row = { ...v };
+      if (this.table === 'tasks') {
+        row.id = row.id || uuid();
+        row.created_at = row.created_at || now;
+        row.updated_at = row.updated_at || now;
+        row.is_completed = row.is_completed ?? false;
+        (db.tasks as unknown as Row[]).push(row);
+        inserted.push(row);
+      } else if (this.table === 'tags') {
+        row.id = row.id || uuid();
+        row.created_at = row.created_at || now;
+        (db.tags as unknown as Row[]).push(row);
+        inserted.push(row);
+      } else if (this.table === 'task_tags') {
+        row.id = row.id || uuid();
+        row.created_at = row.created_at || now;
+        (db.task_tags as unknown as Row[]).push(row);
+        inserted.push(row);
       }
     }
-
-    envLoaded = true;
-  } catch {
-    // Silently fail
+    saveDb();
+    resolve({ data: inserted, error: null });
   }
 }
 
-function getSupabaseCredentials(): SupabaseCredentials {
-  loadEnv();
+class LocalInsertBuilderWithSelect {
+  private table: string;
+  private values: Row[];
 
-  const url = process.env.COZE_SUPABASE_URL;
-  const anonKey = process.env.COZE_SUPABASE_ANON_KEY;
-
-  if (!url) {
-    throw new Error('COZE_SUPABASE_URL is not set');
-  }
-  if (!anonKey) {
-    throw new Error('COZE_SUPABASE_ANON_KEY is not set');
+  constructor(table: string, values: Row[]) {
+    this.table = table;
+    this.values = values;
   }
 
-  return { url, anonKey };
+  single(): LocalSingleBuilder {
+    return new LocalSingleBuilder(this.table, this.values);
+  }
 }
 
-function getSupabaseServiceRoleKey(): string | undefined {
-  loadEnv();
-  return process.env.COZE_SUPABASE_SERVICE_ROLE_KEY;
-}
+class LocalSingleBuilder {
+  private table: string;
+  private values: Row[];
 
-function getSupabaseClient(token?: string): SupabaseClient {
-  const { url, anonKey } = getSupabaseCredentials();
-
-  let key: string;
-  if (token) {
-    key = anonKey;
-  } else {
-    const serviceRoleKey = getSupabaseServiceRoleKey();
-    key = serviceRoleKey ?? anonKey;
+  constructor(table: string, values: Row[]) {
+    this.table = table;
+    this.values = values;
   }
 
-  const globalOptions: Record<string, any> = {};
-  if (token) {
-    globalOptions.headers = { Authorization: `Bearer ${token}` };
-  }
-  try {
-    const buffer = getReportBuffer();
-    if (buffer) {
-      globalOptions.fetch = createWrappedFetch(buffer, 'supabase');
+  async then(resolve: (value: SupabaseResponse<Row>) => void): Promise<void> {
+    const db = loadDb();
+    const now = nowIso();
+    const row = { ...this.values[0] };
+    if (this.table === 'tasks') {
+      row.id = row.id || uuid();
+      row.created_at = row.created_at || now;
+      row.updated_at = row.updated_at || now;
+      row.is_completed = row.is_completed ?? false;
+      (db.tasks as unknown as Row[]).push(row);
+    } else if (this.table === 'tags') {
+      row.id = row.id || uuid();
+      row.created_at = row.created_at || now;
+      (db.tags as unknown as Row[]).push(row);
     }
-  } catch {
-    // Silent — reporting setup failure should not block client creation
+    saveDb();
+    resolve({ data: row, error: null });
   }
-
-  return createClient(url, key, {
-    global: globalOptions,
-    db: {
-      timeout: 60000,
-    },
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false,
-    },
-  });
 }
 
-export { loadEnv, getSupabaseCredentials, getSupabaseServiceRoleKey, getSupabaseClient };
+class LocalUpdateBuilder {
+  private table: string;
+  private updates: Row;
+  private filters: { field: string; value: unknown; op: 'eq' | 'in' }[] = [];
+
+  constructor(table: string, updates: Row) {
+    this.table = table;
+    this.updates = updates;
+  }
+
+  eq(field: string, value: unknown): this {
+    this.filters.push({ field, value, op: 'eq' });
+    return this;
+  }
+
+  in(field: string, values: unknown[]): this {
+    this.filters.push({ field, value: values, op: 'in' });
+    return this;
+  }
+
+  select(_cols = '*'): LocalUpdateBuilderWithSelect {
+    return new LocalUpdateBuilderWithSelect(this.table, this.updates, this.filters);
+  }
+
+  async then(resolve: (value: SupabaseResponse<Row[]>) => void): Promise<void> {
+    const db = loadDb();
+    let collection: Row[];
+    if (this.table === 'tasks') collection = db.tasks as unknown as Row[];
+    else if (this.table === 'tags') collection = db.tags as unknown as Row[];
+    else collection = [];
+
+    const updated: Row[] = [];
+    for (const row of collection) {
+      let match = true;
+      for (const f of this.filters) {
+        const val = row[f.field];
+        if (f.op === 'eq' && val !== f.value) match = false;
+        if (f.op === 'in' && !(f.value as unknown[]).includes(val)) match = false;
+      }
+      if (match) {
+        Object.assign(row, this.updates);
+        row.updated_at = nowIso();
+        updated.push(row);
+      }
+    }
+    saveDb();
+    resolve({ data: updated, error: null });
+  }
+}
+
+class LocalUpdateBuilderWithSelect {
+  private table: string;
+  private updates: Row;
+  private filters: { field: string; value: unknown; op: 'eq' | 'in' }[] = [];
+
+  constructor(table: string, updates: Row, filters: { field: string; value: unknown; op: 'eq' | 'in' }[]) {
+    this.table = table;
+    this.updates = updates;
+    this.filters = filters;
+  }
+
+  single(): LocalUpdateSingleBuilder {
+    return new LocalUpdateSingleBuilder(this.table, this.updates, this.filters);
+  }
+}
+
+class LocalUpdateSingleBuilder {
+  private table: string;
+  private updates: Row;
+  private filters: { field: string; value: unknown; op: 'eq' | 'in' }[] = [];
+
+  constructor(table: string, updates: Row, filters: { field: string; value: unknown; op: 'eq' | 'in' }[]) {
+    this.table = table;
+    this.updates = updates;
+    this.filters = filters;
+  }
+
+  async then(resolve: (value: SupabaseResponse<Row>) => void): Promise<void> {
+    const db = loadDb();
+    let collection: Row[];
+    if (this.table === 'tasks') collection = db.tasks as unknown as Row[];
+    else if (this.table === 'tags') collection = db.tags as unknown as Row[];
+    else collection = [];
+
+    let found: Row | null = null;
+    for (const row of collection) {
+      let match = true;
+      for (const f of this.filters) {
+        const val = row[f.field];
+        if (f.op === 'eq' && val !== f.value) match = false;
+        if (f.op === 'in' && !(f.value as unknown[]).includes(val)) match = false;
+      }
+      if (match) {
+        Object.assign(row, this.updates);
+        row.updated_at = nowIso();
+        found = row;
+        break;
+      }
+    }
+    saveDb();
+    resolve({ data: found, error: null });
+  }
+}
+
+class LocalDeleteBuilder {
+  private table: string;
+  private filters: { field: string; value: unknown; op: 'eq' | 'in' }[] = [];
+
+  constructor(table: string) {
+    this.table = table;
+  }
+
+  eq(field: string, value: unknown): this {
+    this.filters.push({ field, value, op: 'eq' });
+    return this;
+  }
+
+  in(field: string, values: unknown[]): this {
+    this.filters.push({ field, value: values, op: 'in' });
+    return this;
+  }
+
+  select(_cols = '*'): LocalDeleteBuilderWithSelect {
+    return new LocalDeleteBuilderWithSelect(this.table, this.filters);
+  }
+
+  async then(resolve: (value: SupabaseResponse<Row[]>) => void): Promise<void> {
+    const db = loadDb();
+    let collection: Row[];
+    if (this.table === 'tasks') collection = db.tasks as unknown as Row[];
+    else if (this.table === 'tags') collection = db.tags as unknown as Row[];
+    else collection = [];
+
+    const deleted: Row[] = [];
+    for (let i = collection.length - 1; i >= 0; i--) {
+      const row = collection[i];
+      let match = true;
+      for (const f of this.filters) {
+        const val = row[f.field];
+        if (f.op === 'eq' && val !== f.value) match = false;
+        if (f.op === 'in' && !(f.value as unknown[]).includes(val)) match = false;
+      }
+      if (match) {
+        deleted.push(collection.splice(i, 1)[0]);
+      }
+    }
+    saveDb();
+    resolve({ data: deleted, error: null });
+  }
+}
+
+class LocalDeleteBuilderWithSelect {
+  private table: string;
+  private filters: { field: string; value: unknown; op: 'eq' | 'in' }[] = [];
+
+  constructor(table: string, filters: { field: string; value: unknown; op: 'eq' | 'in' }[]) {
+    this.table = table;
+    this.filters = filters;
+  }
+
+  async then(resolve: (value: SupabaseResponse<Row[]>) => void): Promise<void> {
+    const db = loadDb();
+    let collection: Row[];
+    if (this.table === 'tasks') collection = db.tasks as unknown as Row[];
+    else if (this.table === 'tags') collection = db.tags as unknown as Row[];
+    else collection = [];
+
+    const deleted: Row[] = [];
+    for (let i = collection.length - 1; i >= 0; i--) {
+      const row = collection[i];
+      let match = true;
+      for (const f of this.filters) {
+        const val = row[f.field];
+        if (f.op === 'eq' && val !== f.value) match = false;
+        if (f.op === 'in' && !(f.value as unknown[]).includes(val)) match = false;
+      }
+      if (match) {
+        deleted.push(collection.splice(i, 1)[0]);
+      }
+    }
+    saveDb();
+    resolve({ data: deleted, error: null });
+  }
+}
+
+export class LocalClient {
+  from(table: string) {
+    return {
+      select: (cols = '*') => new LocalQueryBuilder(table).select(cols),
+      insert: (values: Row | Row[]) => new LocalInsertBuilder(table, values),
+      update: (updates: Row) => new LocalUpdateBuilder(table, updates),
+      delete: () => new LocalDeleteBuilder(table),
+    };
+  }
+
+  auth = {
+    getUser: async () => {
+      return { data: { user: null }, error: null };
+    },
+  };
+}
+
+/**
+ * 获取本地数据访问客户端（兼容旧接口，token 用于校验用户身份）
+ */
+export function getSupabaseClient(token?: string): LocalClient {
+  if (token) {
+    getUserFromToken(token);
+  }
+  return new LocalClient();
+}
+
+export function getSupabaseCredentials(): { url: string; anonKey: string } {
+  return { url: 'local', anonKey: 'local' };
+}
+
+export function getSupabaseServiceRoleKey(): string | undefined {
+  return undefined;
+}

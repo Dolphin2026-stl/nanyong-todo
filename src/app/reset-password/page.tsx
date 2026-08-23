@@ -2,7 +2,6 @@
 
 import { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import { AppLogo, SuccessIllustration } from '@/components/illustrations';
 import Link from 'next/link';
 import { useAppToast } from '@/lib/toast-provider';
@@ -20,12 +19,10 @@ function ResetPasswordContent() {
   const [success, setSuccess] = useState(false);
 
   useEffect(() => {
-    // 检查是否有有效的重置 token
+    // 本地版：登录态下可直接修改密码（无需邮件链接）
     const checkLink = async () => {
-      const type = searchParams.get('type');
-      const token = searchParams.get('token');
-      
-      if (type === 'recovery' && token) {
+      const token = localStorage.getItem('nanyong-todo-token');
+      if (token) {
         setIsValidLink(true);
       }
       setIsChecking(false);
@@ -49,23 +46,16 @@ function ResetPasswordContent() {
 
     setIsSubmitting(true);
     try {
-      const supabase = createBrowserSupabaseClient();
-      const token = searchParams.get('token');
-      
-      // 先验证 token
-      const { data: verifyData, error: verifyError } = await supabase.auth.verifyOtp({
-        token_hash: token || '',
-        type: 'recovery',
-      });
-      
-      if (verifyError) throw verifyError;
+      const token = localStorage.getItem('nanyong-todo-token');
+      if (!token) throw new Error('未登录');
 
-      // 更新密码
-      const { error } = await supabase.auth.updateUser({
-        password: password,
+      const res = await fetch('/api/local-auth/password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-session': token },
+        body: JSON.stringify({ newPassword: password }),
       });
-
-      if (error) throw error;
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || '重置失败');
 
       setSuccess(true);
       toast.success('密码重置成功！');

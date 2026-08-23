@@ -1,7 +1,6 @@
 import type { Metadata } from 'next';
 import { Inspector } from 'react-dev-inspector';
 import './globals.css';
-import { SupabaseConfigProvider, SupabaseConfigInject } from '@/lib/supabase-config-inject';
 import { ThemeProvider } from '@/lib/theme-context';
 import { AppProvider } from '@/lib/app-context';
 import { ToastProvider } from '@/lib/toast-provider';
@@ -45,17 +44,14 @@ export default function RootLayout({
   return (
     <html lang="zh-CN" suppressHydrationWarning>
       <body className={`antialiased`}>
-        <SupabaseConfigProvider>
-          <SupabaseConfigInject />
-          <ThemeProvider>
-            <AppProvider>
-              <ToastProvider>
-                {isDev && <Inspector />}
-                {children}
-              </ToastProvider>
-            </AppProvider>
-          </ThemeProvider>
-        </SupabaseConfigProvider>
+        <ThemeProvider>
+          <AppProvider>
+            <ToastProvider>
+              {isDev && <Inspector />}
+              {children}
+            </ToastProvider>
+          </AppProvider>
+        </ThemeProvider>
       </body>
     </html>
   );
