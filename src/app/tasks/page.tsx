@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
-import { useApp, taskTypeLabels, taskPriorityLabels, taskImportanceLabels, TaskType, TaskPriority } from '@/lib/app-context';
+import { useApp, taskTypeLabels, taskPriorityLabels, taskImportanceLabels, taskImportanceOrder, taskImportanceStars, TaskType, TaskPriority, TaskImportance } from '@/lib/app-context';
 import { useAuth } from '@/hooks/use-auth';
 import { useAppToast } from '@/lib/toast-provider';
 import { EmptyTasksIllustration, LoadingIllustration } from '@/components/illustrations';
@@ -10,8 +10,15 @@ import AppLayout from '@/components/app-layout';
 type SortField = 'end_time' | 'created_at' | 'priority';
 type SortOrder = 'asc' | 'desc';
 
+const priorityOptions: { id: TaskPriority; label: string }[] = [
+  { id: 'low', label: '低' },
+  { id: 'medium', label: '中' },
+  { id: 'high', label: '高' },
+  { id: 'urgent', label: '紧急' },
+];
+
 export default function TasksPage() {
-  const { tasks, isLoading, refreshTasks, toggleTaskComplete, deleteTask, tags } = useApp();
+  const { tasks, isLoading, refreshTasks, toggleTaskComplete, deleteTask, batchUpdateTasks, batchDeleteTasks, tags, addTag } = useApp();
   const { getAccessToken } = useAuth();
   const toast = useAppToast();
 
@@ -23,6 +30,10 @@ export default function TasksPage() {
   const [sortOrder, setSortOrder] = useState<SortOrder>('asc');
   const [search, setSearch] = useState('');
   const [hasLoaded, setHasLoaded] = useState(false);
+
+  // 批量选择状态
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [selectMode, setSelectMode] = useState(false);
 
   useEffect(() => {
     async function load() {
@@ -116,6 +127,86 @@ export default function TasksPage() {
     return colors[type] || 'bg-gray-400';
   };
 
+  // 批量选择辅助
+  const visibleIds = filteredTasks.map(t => t.id);
+  const allVisibleSelected = visibleIds.length > 0 && visibleIds.every(id => selectedIds.has(id));
+  const someVisibleSelected = visibleIds.some(id => selectedIds.has(id));
+
+  const toggleAllVisible = () => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (allVisibleSelected) {
+        visibleIds.forEach(id => next.delete(id));
+      } else {
+        visibleIds.forEach(id => next.add(id));
+      }
+      return next;
+    });
+  };
+
+  const toggleOne = (id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const clearSelection = () => {
+    setSelectedIds(new Set());
+    setSelectMode(false);
+  };
+
+  // 批量操作
+  const handleBatchPriority = async (priority: TaskPriority) => {
+    if (selectedIds.size === 0) return;
+    try {
+      await batchUpdateTasks([...selectedIds], { priority });
+      toast.success(`已将 ${selectedIds.size} 个任务的优先级设为「${taskPriorityLabels[priority]}」`);
+      clearSelection();
+    } catch (err) {
+      toast.error('批量修改优先级失败');
+    }
+  };
+
+  const handleBatchImportance = async (importance: TaskImportance) => {
+    if (selectedIds.size === 0) return;
+    try {
+      await batchUpdateTasks([...selectedIds], { importance });
+      toast.success(`已将 ${selectedIds.size} 个任务的重要程度设为「${taskImportanceLabels[importance]}」`);
+      clearSelection();
+    } catch (err) {
+      toast.error('批量修改重要程度失败');
+    }
+  };
+
+  const handleBatchTag = async (tagId: string) => {
+    if (selectedIds.size === 0 || !tagId) return;
+    try {
+      await batchUpdateTasks([...selectedIds], { tag_id: tagId });
+      toast.success(`已将 ${selectedIds.size} 个任务打上标签`);
+      clearSelection();
+    } catch (err) {
+      toast.error('批量设置标签失败');
+    }
+  };
+
+  const handleBatchDelete = async () => {
+    if (selectedIds.size === 0) return;
+    if (!confirm(`确定要删除选中的 ${selectedIds.size} 个任务吗？此操作不可恢复！`)) return;
+    try {
+      await batchDeleteTasks([...selectedIds]);
+      toast.success(`已删除 ${selectedIds.size} 个任务`);
+      clearSelection();
+    } catch (err) {
+      toast.error('批量删除失败');
+    }
+  };
+
   const handleDelete = async (id: string) => {
     if (!confirm('确定要删除这个任务吗？')) return;
     try {
@@ -142,6 +233,20 @@ export default function TasksPage() {
     return new Date(task.end_time) < new Date();
   };
 
+  // 星标组件
+  const Stars = ({ importance }: { importance: TaskImportance }) => {
+    const stars = taskImportanceStars[importance] || 0;
+    return (
+      <span className="inline-flex items-center gap-0.5 align-middle" title={taskImportanceLabels[importance]}>
+        {[1, 2, 3, 4, 5].map(n => (
+          <svg key={n} className={`w-3 h-3 ${n <= stars ? 'text-amber-400 fill-amber-400' : 'text-muted-foreground/30 fill-muted-foreground/20'}`} viewBox="0 0 20 20">
+            <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.363-1.118l-2.8-2.034c-.784-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
+          </svg>
+        ))}
+      </span>
+    );
+  };
+
   return (
     <AppLayout>
       <div className="space-y-6 animate-fade-in">
@@ -151,7 +256,89 @@ export default function TasksPage() {
             <h1 className="text-2xl font-bold text-foreground">全部任务</h1>
             <p className="text-muted-foreground mt-1">共 {filteredTasks.length} 个任务</p>
           </div>
+          <button
+            onClick={() => selectMode ? clearSelection() : setSelectMode(true)}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+              selectMode
+                ? 'bg-primary/10 text-primary border border-primary/30'
+                : 'bg-primary text-white hover:bg-primary/90'
+            }`}
+          >
+            {selectMode ? '取消批量' : '批量编辑'}
+          </button>
         </div>
+
+        {/* 批量操作栏 */}
+        {selectMode && (
+          <div className="bg-primary/5 border border-primary/20 rounded-xl p-4 space-y-3 animate-fade-in">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <div className="flex items-center gap-3">
+                <label className="flex items-center gap-2 text-sm text-foreground cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={allVisibleSelected}
+                    ref={el => {
+                      if (el) el.indeterminate = someVisibleSelected && !allVisibleSelected;
+                    }}
+                    onChange={toggleAllVisible}
+                    className="w-4 h-4 rounded border-border text-primary focus:ring-primary"
+                  />
+                  全选本页 ({visibleIds.length})
+                </label>
+                <span className="text-sm font-medium text-primary">
+                  已选 {selectedIds.size} 个任务
+                </span>
+              </div>
+              <button
+                onClick={clearSelection}
+                className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+              >
+                清空选择
+              </button>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-3">
+              {/* 批量改优先级 */}
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-muted-foreground">优先级:</span>
+                <select
+                  value=""
+                  onChange={e => { if (e.target.value) handleBatchPriority(e.target.value as TaskPriority); e.target.value = ''; }}
+                  className="px-3 py-1.5 rounded-lg border border-input bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+                >
+                  <option value="" disabled>选择...</option>
+                  {priorityOptions.map(p => (
+                    <option key={p.id} value={p.id}>{p.label}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* 批量改重要程度 */}
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-muted-foreground">重要程度:</span>
+                <select
+                  value=""
+                  onChange={e => { if (e.target.value) handleBatchImportance(e.target.value as TaskImportance); e.target.value = ''; }}
+                  className="px-3 py-1.5 rounded-lg border border-input bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+                >
+                  <option value="" disabled>选择...</option>
+                  {taskImportanceOrder.map(imp => (
+                    <option key={imp} value={imp}>{taskImportanceLabels[imp]} ({taskImportanceStars[imp]}星)</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* 批量删除 */}
+              <button
+                onClick={handleBatchDelete}
+                disabled={selectedIds.size === 0}
+                className="px-4 py-1.5 rounded-lg text-sm font-medium bg-destructive/10 text-destructive border border-destructive/30 hover:bg-destructive/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                删除所选
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* 筛选栏 */}
         <div className="bg-card border border-border rounded-xl p-4 space-y-4">
@@ -195,10 +382,9 @@ export default function TasksPage() {
                 className="px-3 py-1.5 rounded-lg border border-input bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
               >
                 <option value="all">全部</option>
-                <option value="low">低</option>
-                <option value="medium">中</option>
-                <option value="high">高</option>
-                <option value="urgent">紧急</option>
+                {priorityOptions.map(p => (
+                  <option key={p.id} value={p.id}>{p.label}</option>
+                ))}
               </select>
             </div>
 
@@ -255,8 +441,20 @@ export default function TasksPage() {
               {filteredTasks.map(task => (
                 <div
                   key={task.id}
-                  className="flex items-start gap-4 p-4 hover:bg-accent/30 transition-colors group"
+                  className={`flex items-start gap-4 p-4 transition-colors group ${
+                    selectedIds.has(task.id) ? 'bg-primary/5' : 'hover:bg-accent/30'
+                  }`}
                 >
+                  {/* 选择框（批量模式下显示） */}
+                  {selectMode && (
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.has(task.id)}
+                      onChange={() => toggleOne(task.id)}
+                      className="mt-0.5 w-4 h-4 rounded border-border text-primary focus:ring-primary flex-shrink-0"
+                    />
+                  )}
+
                   <button
                     onClick={() => toggleTaskComplete(task.id)}
                     className={`mt-0.5 w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition-colors ${
@@ -287,8 +485,9 @@ export default function TasksPage() {
                           <span className="text-xs text-muted-foreground">
                             {taskPriorityLabels[task.priority as keyof typeof taskPriorityLabels]}优先级
                           </span>
-                          <span className="text-xs text-muted-foreground">
-                            · {taskImportanceLabels[task.importance as keyof typeof taskImportanceLabels]}
+                          <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                            <Stars importance={task.importance} />
+                            <span>{taskImportanceLabels[task.importance as keyof typeof taskImportanceLabels]}</span>
                           </span>
                         </div>
                         {task.description && (
@@ -311,15 +510,17 @@ export default function TasksPage() {
                     </div>
                   </div>
 
-                  <button
-                    onClick={() => handleDelete(task.id)}
-                    className="p-1.5 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded transition-colors opacity-0 group-hover:opacity-100 flex-shrink-0"
-                    title="删除任务"
-                  >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                    </svg>
-                  </button>
+                  {!selectMode && (
+                    <button
+                      onClick={() => handleDelete(task.id)}
+                      className="p-1.5 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded transition-colors opacity-0 group-hover:opacity-100 flex-shrink-0"
+                      title="删除任务"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                      </svg>
+                    </button>
+                  )}
                 </div>
               ))}
             </div>

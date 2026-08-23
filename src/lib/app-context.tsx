@@ -25,7 +25,8 @@ async function authHeaders(json = false): Promise<Record<string, string>> {
 
 export type TaskType = 'course' | 'homework' | 'exam' | 'activity' | 'personal';
 export type TaskPriority = 'low' | 'medium' | 'high' | 'urgent';
-export type TaskImportance = 'normal' | 'important' | 'very_important';
+// 重要程度 5 档（星标制）：可选-建议-普通-重要-非常重要
+export type TaskImportance = 'optional' | 'suggested' | 'normal' | 'important' | 'very_important';
 
 export interface Task {
   id: string;
@@ -73,6 +74,9 @@ interface AppContextType {
   updateTask: (id: string, updates: Partial<Task>) => Promise<void>;
   deleteTask: (id: string) => Promise<void>;
   toggleTaskComplete: (id: string) => Promise<void>;
+  // 批量操作
+  batchUpdateTasks: (ids: string[], updates: Partial<Task>) => Promise<void>;
+  batchDeleteTasks: (ids: string[]) => Promise<void>;
   addTag: (name: string, color?: string) => Promise<Tag>;
   updateTag: (id: string, updates: { name?: string; color?: string }) => Promise<void>;
   deleteTag: (id: string) => Promise<void>;
@@ -178,6 +182,40 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setTasks(prev => prev.filter(t => t.id !== id));
   }, []);
 
+  // 批量更新任务（统一设置优先级/重要程度/标签等）
+  const batchUpdateTasks = useCallback(async (ids: string[], updates: Partial<Task>) => {
+    if (ids.length === 0) return;
+    const headers = await authHeaders(true);
+    const res = await fetch('/api/tasks/batch', {
+      method: 'PATCH',
+      headers,
+      body: JSON.stringify({ ids, updates }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => null);
+      throw new Error(data?.error || '批量更新失败');
+    }
+    const data = await res.json();
+    setTasks(prev => {
+      const updatedMap = new Map((data.tasks || []).map((t: Task) => [t.id, t]));
+      return prev.map(t => updatedMap.get(t.id) || t);
+    });
+  }, []);
+
+  // 批量删除任务
+  const batchDeleteTasks = useCallback(async (ids: string[]) => {
+    if (ids.length === 0) return;
+    const headers = await authHeaders(true);
+    const res = await fetch('/api/tasks/batch', {
+      method: 'DELETE',
+      headers,
+      body: JSON.stringify({ ids }),
+    });
+    if (!res.ok) throw new Error('批量删除失败');
+    const idSet = new Set(ids);
+    setTasks(prev => prev.filter(t => !idSet.has(t.id)));
+  }, []);
+
   const toggleTaskComplete = useCallback(async (id: string) => {
     const task = tasks.find(t => t.id === id);
     if (!task) return;
@@ -235,6 +273,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       updateTask,
       deleteTask,
       toggleTaskComplete,
+      batchUpdateTasks,
+      batchDeleteTasks,
       addTag,
       updateTag,
       deleteTag,
@@ -270,7 +310,27 @@ export const taskPriorityLabels: Record<TaskPriority, string> = {
 };
 
 export const taskImportanceLabels: Record<TaskImportance, string> = {
+  optional: '可选',
+  suggested: '建议',
   normal: '普通',
   important: '重要',
   very_important: '非常重要',
+};
+
+// 重要程度 5 档顺序（用于星标滑动和排序）
+export const taskImportanceOrder: TaskImportance[] = [
+  'optional',
+  'suggested',
+  'normal',
+  'important',
+  'very_important',
+];
+
+// 重要程度 → 星标数（0-4 星）
+export const taskImportanceStars: Record<TaskImportance, number> = {
+  optional: 1,
+  suggested: 2,
+  normal: 3,
+  important: 4,
+  very_important: 5,
 };

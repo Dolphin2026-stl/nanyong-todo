@@ -37,11 +37,13 @@ export default function DashboardPage() {
     const threshold = new Date(now.getTime() + settings.urgentDays * 24 * 60 * 60 * 1000);
     
     const importanceRank: Record<string, number> = {
-      normal: 0,
-      important: 1,
-      very_important: 2,
+      optional: 0,
+      suggested: 1,
+      normal: 2,
+      important: 3,
+      very_important: 4,
     };
-    const minImportance = importanceRank[settings.urgentImportance] || 1;
+    const minImportance = importanceRank[settings.urgentImportance] ?? 3;
     
     return tasks
       .filter(task => {

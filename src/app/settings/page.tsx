@@ -318,11 +318,13 @@ export default function SettingsPage() {
               <label className="block text-sm font-medium text-foreground mb-2">
                 重要程度门槛
               </label>
-              <div className="flex gap-2">
+              <div className="flex gap-2 flex-wrap">
                 {([
+                  { id: 'optional' as TaskImportance, label: '可选及以上' },
+                  { id: 'suggested' as TaskImportance, label: '建议及以上' },
                   { id: 'normal' as TaskImportance, label: '普通及以上' },
                   { id: 'important' as TaskImportance, label: '重要及以上' },
-                  { id: 'very_important' as TaskImportance, label: '非常重要' },
+                  { id: 'very_important' as TaskImportance, label: '仅非常重要' },
                 ]).map(imp => (
                   <button
                     key={imp.id}

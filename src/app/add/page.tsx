@@ -28,6 +28,15 @@ export default function AddTaskPage() {
   const [description, setDescription] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // 选择任务类型时应用默认的优先级/重要程度（课程默认：低优先级+普通）
+  const handleTypeSelect = (type: TaskType) => {
+    setTaskType(type);
+    if (type === 'course') {
+      setPriority('low');
+      setImportance('normal');
+    }
+  };
+
   // AI 模式状态
   const [aiText, setAiText] = useState('');
   const [apiKey, setApiKey] = useState(settings.aiApiKey || '');
@@ -60,10 +69,12 @@ export default function AddTaskPage() {
     { id: 'urgent', label: '紧急', color: 'bg-red-100 text-red-700 border-red-200' },
   ];
 
-  const importances: { id: TaskImportance; label: string }[] = [
-    { id: 'normal', label: '普通' },
-    { id: 'important', label: '重要' },
-    { id: 'very_important', label: '非常重要' },
+  const importances: { id: TaskImportance; label: string; desc: string; stars: number }[] = [
+    { id: 'optional', label: '可选', desc: '做不做都行', stars: 1 },
+    { id: 'suggested', label: '建议', desc: '有时间就做', stars: 2 },
+    { id: 'normal', label: '普通', desc: '正常对待', stars: 3 },
+    { id: 'important', label: '重要', desc: '优先完成', stars: 4 },
+    { id: 'very_important', label: '非常重要', desc: '必须完成', stars: 5 },
   ];
 
   const handleFormSubmit = async (e: React.FormEvent) => {
@@ -233,7 +244,7 @@ export default function AddTaskPage() {
                   <button
                     key={type.id}
                     type="button"
-                    onClick={() => setTaskType(type.id)}
+                    onClick={() => handleTypeSelect(type.id)}
                     className={`flex flex-col items-center gap-1.5 p-3 rounded-xl border-2 transition-all ${
                       taskType === type.id
                         ? `border-${type.color} bg-${type.color}/10`
@@ -331,26 +342,63 @@ export default function AddTaskPage() {
               </div>
             </div>
 
-            {/* 步骤5：重要程度 */}
+            {/* 步骤5：重要程度（5档星标滑动） */}
             <div>
               <label className="block text-sm font-medium text-foreground mb-3">
                 <span className="text-primary mr-1">5.</span>重要程度
+                <span className="ml-2 text-xs text-muted-foreground">(星标制，可滑动)</span>
               </label>
-              <div className="flex gap-2 flex-wrap">
-                {importances.map(imp => (
-                  <button
-                    key={imp.id}
-                    type="button"
-                    onClick={() => setImportance(imp.id)}
-                    className={`px-4 py-2 rounded-lg border font-medium text-sm transition-all ${
-                      importance === imp.id
-                        ? 'border-primary bg-primary/10 text-primary'
-                        : 'border-border text-muted-foreground hover:border-muted-foreground/30'
-                    }`}
-                  >
-                    {imp.label}
-                  </button>
-                ))}
+              <div className="bg-muted/50 border border-border rounded-xl p-4">
+                {/* 星标显示 */}
+                <div className="flex items-center gap-1 mb-4 select-none">
+                  {[1, 2, 3, 4, 5].map(n => {
+                    const current = importances.find(i => i.id === importance);
+                    const active = n <= (current?.stars || 0);
+                    return (
+                      <button
+                        key={n}
+                        type="button"
+                        onClick={() => {
+                          // 点击第 n 颗星 → 设为 n 档
+                          const target = importances.find(i => i.stars === n);
+                          if (target) setImportance(target.id);
+                        }}
+                        className="p-1 -m-1 transition-transform hover:scale-110 focus:outline-none"
+                        title={importances[n - 1]?.label}
+                      >
+                        <svg className={`w-8 h-8 transition-colors ${active ? 'text-amber-400 fill-amber-400' : 'text-muted-foreground/30 fill-muted-foreground/20 hover:text-muted-foreground/50'}`} viewBox="0 0 20 20">
+                          <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.363-1.118l-2.8-2.034c-.784-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
+                        </svg>
+                      </button>
+                    );
+                  })}
+                  <div className="ml-3">
+                    <span className="text-sm font-semibold text-foreground">
+                      {importances.find(i => i.id === importance)?.label || '普通'}
+                    </span>
+                    <span className="text-xs text-muted-foreground ml-2">
+                      {importances.find(i => i.id === importance)?.desc}
+                    </span>
+                  </div>
+                </div>
+
+                {/* 档位标签 */}
+                <div className="flex justify-between px-1">
+                  {importances.map(imp => (
+                    <button
+                      key={imp.id}
+                      type="button"
+                      onClick={() => setImportance(imp.id)}
+                      className={`text-xs py-1 px-2 rounded transition-colors ${
+                        importance === imp.id
+                          ? 'bg-amber-400/15 text-amber-600 font-medium'
+                          : 'text-muted-foreground hover:text-foreground'
+                      }`}
+                    >
+                      {imp.stars}星 {imp.label}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
 
