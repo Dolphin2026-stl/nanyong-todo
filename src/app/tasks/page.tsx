@@ -187,9 +187,7 @@ export default function TasksPage() {
   const handleBatchTag = async (tagId: string) => {
     if (selectedIds.size === 0 || !tagId) return;
     try {
-      await batchUpdateTasks([...selectedIds], { tag_id: tagId });
-      toast.success(`已将 ${selectedIds.size} 个任务打上标签`);
-      clearSelection();
+      toast.info('批量设置标签功能开发中，敬请期待');
     } catch (err) {
       toast.error('批量设置标签失败');
     }

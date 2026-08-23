@@ -197,7 +197,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
     const data = await res.json();
     setTasks(prev => {
-      const updatedMap = new Map((data.tasks || []).map((t: Task) => [t.id, t]));
+      const updatedMap = new Map<string, Task>((data.tasks || []).map((t: Task) => [t.id, t] as const));
       return prev.map(t => updatedMap.get(t.id) || t);
     });
   }, []);
