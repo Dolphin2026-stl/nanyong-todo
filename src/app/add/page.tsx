@@ -12,7 +12,7 @@ type ImportMode = 'form' | 'ai';
 export default function AddTaskPage() {
   const [mode, setMode] = useState<ImportMode>('form');
   const router = useRouter();
-  const { addTask, settings, updateSettings } = useApp();
+  const { addTask, settings, updateSettings, tags } = useApp();
   const { getAccessToken } = useAuth();
   const toast = useAppToast();
 
@@ -26,7 +26,15 @@ export default function AddTaskPage() {
   const [priority, setPriority] = useState<TaskPriority>('medium');
   const [importance, setImportance] = useState<TaskImportance>('normal');
   const [description, setDescription] = useState('');
+  const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // 切换任务标签
+  const toggleTag = (tagId: string) => {
+    setSelectedTagIds(prev =>
+      prev.includes(tagId) ? prev.filter(id => id !== tagId) : [...prev, tagId]
+    );
+  };
 
   // 选择任务类型时应用默认的优先级/重要程度（课程默认：低优先级+普通）
   const handleTypeSelect = (type: TaskType) => {
@@ -100,6 +108,7 @@ export default function AddTaskPage() {
         importance,
         start_time,
         end_time,
+        tag_ids: selectedTagIds,
       });
       
       toast.success('任务添加成功！');
@@ -414,6 +423,45 @@ export default function AddTaskPage() {
                 rows={3}
                 className="w-full px-4 py-3 rounded-lg border border-input bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-colors resize-none"
               />
+            </div>
+
+            {/* 步骤7：标签 */}
+            <div>
+              <label className="block text-sm font-medium text-foreground mb-2">
+                <span className="text-primary mr-1">7.</span>标签 <span className="text-muted-foreground text-xs">(可选，可多选)</span>
+              </label>
+              {tags.length === 0 ? (
+                <div className="p-3 bg-muted/50 rounded-lg text-sm text-muted-foreground flex items-center justify-between">
+                  <span>还没有标签，先创建一些吧</span>
+                  <button
+                    type="button"
+                    onClick={() => router.push('/tags')}
+                    className="text-primary hover:underline text-xs font-medium"
+                  >
+                    去创建 →
+                  </button>
+                </div>
+              ) : (
+                <div className="flex flex-wrap gap-2">
+                  {tags.map(tag => (
+                    <button
+                      key={tag.id}
+                      type="button"
+                      onClick={() => toggleTag(tag.id)}
+                      className={`px-3 py-1.5 rounded-full border text-sm font-medium transition-all ${
+                        selectedTagIds.includes(tag.id)
+                          ? 'border-transparent text-white shadow-sm'
+                          : 'border-border text-muted-foreground hover:border-muted-foreground/40'
+                      }`}
+                      style={selectedTagIds.includes(tag.id)
+                        ? { backgroundColor: tag.color || '#4A1A6B' }
+                        : {}}
+                    >
+                      {selectedTagIds.includes(tag.id) ? '✓ ' : '# '}{tag.name}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
 
             {/* 提交按钮 */}

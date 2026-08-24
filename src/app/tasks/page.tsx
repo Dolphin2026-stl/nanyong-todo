@@ -18,7 +18,7 @@ const priorityOptions: { id: TaskPriority; label: string }[] = [
 ];
 
 export default function TasksPage() {
-  const { tasks, isLoading, refreshTasks, toggleTaskComplete, deleteTask, batchUpdateTasks, batchDeleteTasks, tags, addTag } = useApp();
+  const { tasks, isLoading, refreshTasks, toggleTaskComplete, deleteTask, batchUpdateTasks, batchDeleteTasks, batchSetTags, tags, addTag } = useApp();
   const { getAccessToken } = useAuth();
   const toast = useAppToast();
 
@@ -184,10 +184,18 @@ export default function TasksPage() {
     }
   };
 
-  const handleBatchTag = async (tagId: string) => {
-    if (selectedIds.size === 0 || !tagId) return;
+  // 批量设置标签：tagIds 传单个标签或空数组(清除)
+  const handleBatchTag = async (tagIds: string[]) => {
+    if (selectedIds.size === 0) return;
     try {
-      toast.info('批量设置标签功能开发中，敬请期待');
+      await batchSetTags([...selectedIds], tagIds);
+      if (tagIds.length === 0) {
+        toast.success(`已清除 ${selectedIds.size} 个任务的标签`);
+      } else {
+        const tagName = tags.find(t => t.id === tagIds[0])?.name || '';
+        toast.success(`已将 ${selectedIds.size} 个任务打上「${tagName}」标签`);
+      }
+      clearSelection();
     } catch (err) {
       toast.error('批量设置标签失败');
     }
@@ -323,6 +331,22 @@ export default function TasksPage() {
                   {taskImportanceOrder.map(imp => (
                     <option key={imp} value={imp}>{taskImportanceLabels[imp]} ({taskImportanceStars[imp]}星)</option>
                   ))}
+                </select>
+              </div>
+
+              {/* 批量设置标签 */}
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-muted-foreground">标签:</span>
+                <select
+                  value=""
+                  onChange={e => { if (e.target.value) { const tid = e.target.value; if (tid === '__clear__') handleBatchTag([]); else handleBatchTag([tid]); } e.target.value = ''; }}
+                  className="px-3 py-1.5 rounded-lg border border-input bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+                >
+                  <option value="" disabled>选择...</option>
+                  {tags.map(tag => (
+                    <option key={tag.id} value={tag.id}>{tag.name}</option>
+                  ))}
+                  {tags.length > 0 && <option value="__clear__">✕ 清除标签</option>}
                 </select>
               </div>
 
@@ -487,6 +511,23 @@ export default function TasksPage() {
                             <Stars importance={task.importance} />
                             <span>{taskImportanceLabels[task.importance as keyof typeof taskImportanceLabels]}</span>
                           </span>
+                          {(task.tag_ids || []).map(tagId => {
+                            const tag = tags.find(t => t.id === tagId);
+                            if (!tag) return null;
+                            return (
+                              <span
+                                key={tagId}
+                                className="text-xs px-2 py-0.5 rounded-full font-medium"
+                                style={{
+                                  backgroundColor: (tag.color || '#4A1A6B') + '22',
+                                  color: tag.color || '#4A1A6B',
+                                  border: `1px solid ${(tag.color || '#4A1A6B')}55`,
+                                }}
+                              >
+                                # {tag.name}
+                              </span>
+                            );
+                          })}
                         </div>
                         {task.description && (
                           <p className="text-sm text-muted-foreground mt-2 line-clamp-2">

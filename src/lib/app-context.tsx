@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useContext, useState, useCallback, ReactNode } from 'react';
+import { createContext, useContext, useState, useCallback, useEffect, ReactNode } from 'react';
 
 /** 获取当前登录用户的 access token（本地版从 localStorage 读取） */
 async function getSessionToken(): Promise<string | undefined> {
@@ -37,6 +37,7 @@ export interface Task {
   is_completed: boolean;
   completed_at?: string;
   tags?: string[];
+  tag_ids?: string[];
   created_at: string;
   updated_at: string;
 }
@@ -74,6 +75,9 @@ interface AppContextType {
   // 批量操作
   batchUpdateTasks: (ids: string[], updates: Partial<Task>) => Promise<void>;
   batchDeleteTasks: (ids: string[]) => Promise<void>;
+  // 标签操作
+  setTaskTags: (id: string, tagIds: string[]) => Promise<void>;
+  batchSetTags: (ids: string[], tagIds: string[]) => Promise<void>;
   addTag: (name: string, color?: string) => Promise<Tag>;
   updateTag: (id: string, updates: { name?: string; color?: string }) => Promise<void>;
   deleteTag: (id: string) => Promise<void>;
@@ -139,6 +143,34 @@ export function AppProvider({ children }: { children: ReactNode }) {
     } catch {
       // 忽略
     }
+  }, []);
+
+  // 初始化：登录后加载任务和标签（登录态变化时重新加载）
+  useEffect(() => {
+    let mounted = true;
+    async function init() {
+      const token = await getSessionToken();
+      if (!token) {
+        setIsLoading(false);
+        return;
+      }
+      try {
+        const [tasksRes, tagsRes] = await Promise.all([
+          fetch('/api/tasks', { headers: { 'x-session': token } }),
+          fetch('/api/tags', { headers: { 'x-session': token } }),
+        ]);
+        if (mounted) {
+          if (tasksRes.ok) setTasks((await tasksRes.json()).tasks || []);
+          if (tagsRes.ok) setTags((await tagsRes.json()).tags || []);
+        }
+      } catch {
+        // 忽略
+      } finally {
+        if (mounted) setIsLoading(false);
+      }
+    }
+    init();
+    return () => { mounted = false; };
   }, []);
 
   const addTask = useCallback(async (task: Omit<Task, 'id' | 'created_at' | 'updated_at' | 'is_completed'>): Promise<Task> => {
@@ -219,6 +251,36 @@ export function AppProvider({ children }: { children: ReactNode }) {
     await updateTask(id, { is_completed: !task.is_completed });
   }, [tasks, updateTask]);
 
+  // 设置单个任务的标签（全量替换）
+  const setTaskTags = useCallback(async (id: string, tagIds: string[]) => {
+    const headers = await authHeaders(true);
+    const res = await fetch(`/api/tasks/${id}/tags`, {
+      method: 'PUT',
+      headers,
+      body: JSON.stringify({ tagIds }),
+    });
+    if (!res.ok) throw new Error('设置标签失败');
+    setTasks(prev => prev.map(t => t.id === id ? { ...t, tag_ids: tagIds } : t));
+  }, []);
+
+  // 批量设置标签（覆盖式：给选中的任务统一设置标签）
+  const batchSetTags = useCallback(async (ids: string[], tagIds: string[]) => {
+    if (ids.length === 0) return;
+    const headers = await authHeaders(true);
+    // 逐个任务设置（简单可靠）
+    let ok = true;
+    for (const id of ids) {
+      const res = await fetch(`/api/tasks/${id}/tags`, {
+        method: 'PUT',
+        headers,
+        body: JSON.stringify({ tagIds }),
+      });
+      if (!res.ok) { ok = false; break; }
+    }
+    if (!ok) throw new Error('批量设置标签失败');
+    setTasks(prev => prev.map(t => ids.includes(t.id) ? { ...t, tag_ids: tagIds } : t));
+  }, []);
+
   const addTag = useCallback(async (name: string, color?: string): Promise<Tag> => {
     const headers = await authHeaders(true);
     const res = await fetch('/api/tags', {
@@ -272,6 +334,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       toggleTaskComplete,
       batchUpdateTasks,
       batchDeleteTasks,
+      setTaskTags,
+      batchSetTags,
       addTag,
       updateTag,
       deleteTag,

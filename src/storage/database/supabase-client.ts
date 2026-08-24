@@ -94,10 +94,30 @@ class LocalQueryBuilder {
     });
   }
 
+  single(): LocalQuerySingleBuilder {
+    return new LocalQuerySingleBuilder(this);
+  }
+
   async then(resolve: (value: SupabaseResponse<Row[]>) => void): Promise<void> {
     let rows = this.getRows();
     rows = this.sortRows(rows);
     resolve({ data: rows, error: null });
+  }
+}
+
+class LocalQuerySingleBuilder {
+  private parent: LocalQueryBuilder;
+
+  constructor(parent: LocalQueryBuilder) {
+    this.parent = parent;
+  }
+
+  async then(resolve: (value: SupabaseResponse<Row>) => void): Promise<void> {
+    // 复用父查询的过滤/排序逻辑
+    const rows = await new Promise<Row[]>(res => {
+      this.parent.then(r => res(r.data || []));
+    });
+    resolve({ data: rows[0] || null, error: null });
   }
 }
 
@@ -216,6 +236,7 @@ class LocalUpdateBuilder {
     let collection: Row[];
     if (this.table === 'tasks') collection = db.tasks as unknown as Row[];
     else if (this.table === 'tags') collection = db.tags as unknown as Row[];
+    else if (this.table === 'task_tags') collection = db.task_tags as unknown as Row[];
     else collection = [];
 
     const updated: Row[] = [];
@@ -257,6 +278,7 @@ class LocalUpdateBuilderWithSelect {
     let collection: Row[];
     if (this.table === 'tasks') collection = db.tasks as unknown as Row[];
     else if (this.table === 'tags') collection = db.tags as unknown as Row[];
+    else if (this.table === 'task_tags') collection = db.task_tags as unknown as Row[];
     else collection = [];
 
     const updated: Row[] = [];
@@ -294,6 +316,7 @@ class LocalUpdateSingleBuilder {
     let collection: Row[];
     if (this.table === 'tasks') collection = db.tasks as unknown as Row[];
     else if (this.table === 'tags') collection = db.tags as unknown as Row[];
+    else if (this.table === 'task_tags') collection = db.task_tags as unknown as Row[];
     else collection = [];
 
     let found: Row | null = null;
@@ -343,6 +366,7 @@ class LocalDeleteBuilder {
     let collection: Row[];
     if (this.table === 'tasks') collection = db.tasks as unknown as Row[];
     else if (this.table === 'tags') collection = db.tags as unknown as Row[];
+    else if (this.table === 'task_tags') collection = db.task_tags as unknown as Row[];
     else collection = [];
 
     const deleted: Row[] = [];
@@ -377,6 +401,7 @@ class LocalDeleteBuilderWithSelect {
     let collection: Row[];
     if (this.table === 'tasks') collection = db.tasks as unknown as Row[];
     else if (this.table === 'tags') collection = db.tags as unknown as Row[];
+    else if (this.table === 'task_tags') collection = db.task_tags as unknown as Row[];
     else collection = [];
 
     const deleted: Row[] = [];

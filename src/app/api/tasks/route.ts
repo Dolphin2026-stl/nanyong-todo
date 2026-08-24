@@ -46,7 +46,30 @@ export async function GET(request: NextRequest) {
     
     if (error) throw error;
     
-    return NextResponse.json({ tasks: data || [] });
+    // 附带每个任务的标签 ID
+    const taskIds = (data || []).map(t => t.id as string);
+    let tagMap: Record<string, string[]> = {};
+    if (taskIds.length > 0) {
+      const { data: links, error: linkError } = await supabase
+        .from('task_tags')
+        .select('*')
+        .in('task_id', taskIds);
+      if (!linkError) {
+        tagMap = {};
+        for (const link of links || []) {
+          const tid = link.task_id as string;
+          if (!tagMap[tid]) tagMap[tid] = [];
+          tagMap[tid].push(link.tag_id as string);
+        }
+      }
+    }
+    
+    const tasksWithTags = (data || []).map(t => ({
+      ...t,
+      tag_ids: tagMap[t.id as string] || [],
+    }));
+    
+    return NextResponse.json({ tasks: tasksWithTags });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : '获取任务失败' },
@@ -84,7 +107,15 @@ export async function POST(request: NextRequest) {
     
     if (error) throw error;
     
-    return NextResponse.json({ task: data });
+    // 创建任务时可选带标签
+    const tagIds: string[] = Array.isArray(body?.tag_ids) ? body.tag_ids : [];
+    if (data && tagIds.length > 0) {
+      for (const tagId of tagIds) {
+        await supabase.from('task_tags').insert({ task_id: data.id, tag_id: tagId });
+      }
+    }
+    
+    return NextResponse.json({ task: { ...data, tag_ids: tagIds } });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : '创建任务失败' },
