@@ -75,14 +75,9 @@ export default function TasksPage() {
       result = result.filter(t => !t.is_completed);
     }
 
-    // 标签过滤（简化：通过标题关键词模拟）
+    // 标签过滤（按真实 tag_ids 关联过滤）
     if (filterTag !== 'all') {
-      const tag = tags.find(t => t.id === filterTag);
-      if (tag) {
-        result = result.filter(t =>
-          t.title.includes(tag.name) || (t.description || '').includes(tag.name)
-        );
-      }
+      result = result.filter(t => (t.tag_ids || []).includes(filterTag));
     }
 
     // 排序
@@ -420,6 +415,20 @@ export default function TasksPage() {
                 <option value="all">全部</option>
                 <option value="pending">待完成</option>
                 <option value="completed">已完成</option>
+              </select>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-muted-foreground">标签:</span>
+              <select
+                value={filterTag}
+                onChange={e => setFilterTag(e.target.value)}
+                className="px-3 py-1.5 rounded-lg border border-input bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+              >
+                <option value="all">全部</option>
+                {tags.map(tag => (
+                  <option key={tag.id} value={tag.id}>{tag.name}</option>
+                ))}
               </select>
             </div>
 

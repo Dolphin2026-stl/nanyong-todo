@@ -37,11 +37,29 @@ export default function AddTaskPage() {
   };
 
   // 选择任务类型时应用默认的优先级/重要程度（课程默认：低优先级+普通）
+  // 同时自动推荐同名标签（如选"考试"类别自动勾选"考试"标签）
   const handleTypeSelect = (type: TaskType) => {
     setTaskType(type);
     if (type === 'course') {
       setPriority('low');
       setImportance('normal');
+    }
+    // 类别 → 推荐标签名映射
+    const typeTagMap: Record<string, string> = {
+      course: '课程',
+      homework: '作业',
+      exam: '考试',
+      activity: '活动',
+      personal: '个人',
+    };
+    const recommendName = typeTagMap[type];
+    if (recommendName) {
+      const matchTag = tags.find(t => t.name === recommendName);
+      if (matchTag) {
+        setSelectedTagIds(prev =>
+          prev.includes(matchTag.id) ? prev : [...prev, matchTag.id]
+        );
+      }
     }
   };
 
@@ -443,23 +461,35 @@ export default function AddTaskPage() {
                 </div>
               ) : (
                 <div className="flex flex-wrap gap-2">
-                  {tags.map(tag => (
-                    <button
-                      key={tag.id}
-                      type="button"
-                      onClick={() => toggleTag(tag.id)}
-                      className={`px-3 py-1.5 rounded-full border text-sm font-medium transition-all ${
-                        selectedTagIds.includes(tag.id)
-                          ? 'border-transparent text-white shadow-sm'
-                          : 'border-border text-muted-foreground hover:border-muted-foreground/40'
-                      }`}
-                      style={selectedTagIds.includes(tag.id)
-                        ? { backgroundColor: tag.color || '#4A1A6B' }
-                        : {}}
-                    >
-                      {selectedTagIds.includes(tag.id) ? '✓ ' : '# '}{tag.name}
-                    </button>
-                  ))}
+                  {tags.map(tag => {
+                    // 当前类别对应的推荐标签名
+                    const typeTagMap: Record<string, string> = {
+                      course: '课程', homework: '作业', exam: '考试', activity: '活动', personal: '个人',
+                    };
+                    const isRecommended = tag.name === typeTagMap[taskType];
+                    return (
+                      <button
+                        key={tag.id}
+                        type="button"
+                        onClick={() => toggleTag(tag.id)}
+                        className={`px-3 py-1.5 rounded-full border text-sm font-medium transition-all ${
+                          selectedTagIds.includes(tag.id)
+                            ? 'border-transparent text-white shadow-sm'
+                            : isRecommended
+                              ? 'border-primary/40 text-primary bg-primary/5 hover:bg-primary/10'
+                              : 'border-border text-muted-foreground hover:border-muted-foreground/40'
+                        }`}
+                        style={selectedTagIds.includes(tag.id)
+                          ? { backgroundColor: tag.color || '#4A1A6B' }
+                          : {}}
+                      >
+                        {selectedTagIds.includes(tag.id) ? '✓ ' : '# '}{tag.name}
+                        {isRecommended && selectedTagIds.includes(tag.id) && (
+                          <span className="ml-1 text-[10px] bg-white/20 rounded px-1 py-0.5">自动匹配</span>
+                        )}
+                      </button>
+                    );
+                  })}
                 </div>
               )}
             </div>

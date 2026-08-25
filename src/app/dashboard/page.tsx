@@ -10,7 +10,7 @@ import AppLayout from '@/components/app-layout';
 type ViewType = 'day' | 'week';
 
 export default function DashboardPage() {
-  const { tasks, isLoading, refreshTasks, toggleTaskComplete, deleteTask, settings } = useApp();
+  const { tasks, isLoading, refreshTasks, toggleTaskComplete, deleteTask, settings, tags } = useApp();
   const { getAccessToken } = useAuth();
   const toast = useAppToast();
   const [view, setView] = useState<ViewType>('day');
@@ -227,6 +227,18 @@ export default function DashboardPage() {
     return colors[type] || 'bg-gray-400';
   };
 
+  // 获取任务颜色：优先用标签颜色（第一个标签），无标签回退任务类型色
+  const getTaskColorStyle = (task: typeof tasks[0]): { className?: string; style?: React.CSSProperties } => {
+    const tagId = (task.tag_ids || [])[0];
+    if (tagId) {
+      const tag = tags.find(t => t.id === tagId);
+      if (tag?.color) {
+        return { style: { backgroundColor: tag.color } };
+      }
+    }
+    return { className: getTypeColor(task.task_type) };
+  };
+
   const handleDelete = async (id: string) => {
     if (!confirm('确定要删除这个任务吗？')) return;
     try {
@@ -384,7 +396,7 @@ export default function DashboardPage() {
                           )}
                         </button>
                         
-                        <div className={`w-1 self-stretch rounded-full ${getTypeColor(task.task_type)} flex-shrink-0`} />
+                        <div className={`w-1 self-stretch rounded-full ${getTaskColorStyle(task).className || ''} flex-shrink-0`} style={getTaskColorStyle(task).style} />
                         
                         <div className="flex-1 min-w-0">
                           <h4 className={`font-medium ${task.is_completed ? 'line-through text-muted-foreground' : 'text-foreground'}`}>
@@ -452,19 +464,23 @@ export default function DashboardPage() {
                         </div>
                         
                         <div className="space-y-1 min-h-[100px]">
-                          {dayTasksList.slice(0, 3).map(task => (
-                            <div
-                              key={task.id}
-                              className={`text-xs p-1.5 rounded text-left truncate ${getTypeColor(task.task_type)} text-white cursor-pointer hover:opacity-80 transition-opacity`}
-                              title={`${task.title} - ${formatTime(task.end_time)}`}
-                              onClick={() => {
-                                setSelectedDate(date);
-                                setView('day');
-                              }}
-                            >
-                              {task.title}
-                            </div>
-                          ))}
+                          {dayTasksList.slice(0, 3).map(task => {
+                            const c = getTaskColorStyle(task);
+                            return (
+                              <div
+                                key={task.id}
+                                className={`text-xs p-1.5 rounded text-left truncate ${c.className || ''} text-white cursor-pointer hover:opacity-80 transition-opacity`}
+                                style={c.style}
+                                title={`${task.title} - ${formatTime(task.end_time)}`}
+                                onClick={() => {
+                                  setSelectedDate(date);
+                                  setView('day');
+                                }}
+                              >
+                                {task.title}
+                              </div>
+                            );
+                          })}
                           {dayTasksList.length > 3 && (
                             <div className="text-xs text-muted-foreground text-center">
                               +{dayTasksList.length - 3} 更多
@@ -604,25 +620,37 @@ export default function DashboardPage() {
                       {/* 任务小圆点 */}
                       {hasTasks && day.isCurrentMonth && (
                         <div className="absolute bottom-1 flex gap-0.5">
-                          {day.tasks.slice(0, 3).map((task, i) => (
-                            <div
-                              key={i}
-                              className={`w-1 h-1 rounded-full ${day.isSelected ? 'bg-primary-foreground' : getTypeColor(task.task_type)}`}
-                            />
-                          ))}
+                          {day.tasks.slice(0, 3).map((task, i) => {
+                            const c = getTaskColorStyle(task);
+                            return (
+                              <div
+                                key={i}
+                                className={`w-1 h-1 rounded-full ${day.isSelected ? 'bg-primary-foreground' : (c.className || '')}`}
+                                style={day.isSelected ? undefined : c.style}
+                              />
+                            );
+                          })}
                         </div>
                       )}
                       
                       {/* 悬停提示 */}
                       {hasTasks && day.isCurrentMonth && (
                         <div className="hidden group-hover:block absolute bottom-full left-1/2 -translate-x-1/2 mb-2 z-10">
-                          <div className="bg-popover border border-border rounded-lg p-2 shadow-lg text-left text-xs w-40">
-                            {day.tasks.slice(0, 5).map(task => (
-                              <div key={task.id} className="flex items-center gap-1.5 py-0.5">
-                                <div className={`w-2 h-2 rounded-full ${getTypeColor(task.task_type)}`} />
-                                <span className="truncate">{task.title}</span>
-                              </div>
-                            ))}
+                          <div className="bg-popover border border-border rounded-lg p-2 shadow-lg text-left text-xs w-44">
+                            {day.tasks.slice(0, 5).map(task => {
+                              const c = getTaskColorStyle(task);
+                              return (
+                                <div key={task.id} className="flex items-center gap-1.5 py-0.5">
+                                  <div className={`w-2 h-2 rounded-full flex-shrink-0 ${c.className || ''}`} style={c.style} />
+                                  <span className="truncate flex-1">{task.title}</span>
+                                  {(task.tag_ids || []).length > 0 && (
+                                    <span className="text-[10px] text-muted-foreground flex-shrink-0">
+                                      {tags.find(t => t.id === (task.tag_ids || [])[0])?.name || ''}
+                                    </span>
+                                  )}
+                                </div>
+                              );
+                            })}
                             {day.tasks.length > 5 && (
                               <div className="text-muted-foreground pt-0.5">还有 {day.tasks.length - 5} 项</div>
                             )}
@@ -656,6 +684,13 @@ export default function DashboardPage() {
                   <div className="w-2 h-2 rounded-full bg-task-personal" />
                   个人
                 </div>
+                {/* 标签颜色图例（有标签时显示） */}
+                {tags.filter(t => tasks.some(task => (task.tag_ids || []).includes(t.id))).slice(0, 6).map(tag => (
+                  <div key={tag.id} className="flex items-center gap-1">
+                    <div className="w-2 h-2 rounded-full" style={{ backgroundColor: tag.color || '#4A1A6B' }} />
+                    {tag.name}
+                  </div>
+                ))}
               </div>
             </div>
           </div>
