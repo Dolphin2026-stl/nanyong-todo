@@ -1,39 +1,26 @@
 @echo off
 chcp 65001 >nul
-title 南雍待办 - 本地版（开发模式）
-echo ============================================
-echo   南雍待办（本地版·开发模式）启动中...
-echo ============================================
-echo.
-
+title NanyongToDo Local Quick
+echo Starting...
 cd /d "%~dp0"
-
 if not exist node_modules (
-    echo 首次运行，正在安装依赖...
+    echo Installing dependencies...
     call pnpm install
-    if errorlevel 1 (
-        echo 依赖安装失败，请确认已安装 Node.js 和 pnpm
-        pause
-        exit /b 1
-    )
+    if errorlevel 1 ( echo Install failed & pause & exit /b 1 )
 )
-
+if not exist ".next\BUILD_ID" (
+    echo Building...
+    "C:\Program Files\nodejs\node.exe" "%~dp0node_modules\next\dist\bin\next" build
+    if errorlevel 1 ( echo Build failed & pause & exit /b 1 )
+)
 echo.
 echo ============================================
-echo   ✅ 启动中！请稍候，浏览器打开：
-echo.
-echo       http://localhost:3000
-echo.
-echo   关闭此窗口 = 停止服务器
+echo   OK! Open: http://localhost:3100
+echo   Close this window to stop server
 echo ============================================
 echo.
-
-set PORT=3000
-call npx next dev
-if errorlevel 1 (
-    echo 3000 端口被占用，改用 3100...
-    set PORT=3100
-    call npx next dev
-)
-
+set PORT=3100
+set LOCAL_JWT_SECRET=nanyong-local-run-secret
+set COREPACK_ENABLE_STRICT=0
+"C:\Program Files\nodejs\node.exe" "%~dp0node_modules\next\dist\bin\next" start
 pause
