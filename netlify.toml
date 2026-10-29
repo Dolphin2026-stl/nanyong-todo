@@ -1,0 +1,6 @@
+[build]
+  command = "pnpm exec next build"
+
+[build.environment]
+  NEXT_PUBLIC_BASE_PATH = "/todo"
+  SUPABASE_URL = "https://axwaaxojosmujcdkcrhc.supabase.co"
