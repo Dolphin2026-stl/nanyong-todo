@@ -43,6 +43,7 @@ create index if not exists tasks_user_end_time_idx on public.tasks(user_id, end_
 create index if not exists tasks_user_completed_idx on public.tasks(user_id, is_completed);
 create index if not exists tags_user_id_idx on public.tags(user_id);
 create index if not exists task_tags_task_id_idx on public.task_tags(task_id);
+create index if not exists task_tags_tag_id_idx on public.task_tags(tag_id);
 
 alter table public.user_profiles enable row level security;
 alter table public.tasks enable row level security;
@@ -79,3 +80,4 @@ end;
 $$;
 create trigger on_auth_user_created
   after insert on auth.users for each row execute function public.create_user_profile();
+revoke execute on function public.create_user_profile() from public, anon, authenticated;
