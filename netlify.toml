@@ -1,5 +1,5 @@
 [build]
-  command = "pnpm exec next build"
+  command = ": \"${SUPABASE_ANON_KEY:?Set SUPABASE_ANON_KEY in Netlify}\" && NEXT_PUBLIC_SUPABASE_URL=\"$SUPABASE_URL\" NEXT_PUBLIC_SUPABASE_ANON_KEY=\"$SUPABASE_ANON_KEY\" pnpm exec next build"
 
 [build.environment]
   NEXT_PUBLIC_BASE_PATH = "/todo"
