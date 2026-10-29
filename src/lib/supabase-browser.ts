@@ -2,6 +2,7 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { appUrl } from '@/lib/app-url';
 
 let browserClient: SupabaseClient | null = null;
+let browserClientPromise: Promise<SupabaseClient> | null = null;
 let configPromise: Promise<{ url: string; anonKey: string }> | null = null;
 
 async function fetchConfig(): Promise<{ url: string; anonKey: string }> {
@@ -36,17 +37,27 @@ export function createBrowserSupabaseClient(): SupabaseClient {
 
 export async function getSupabaseBrowserClientAsync(): Promise<SupabaseClient> {
   if (browserClient) return browserClient;
-  
-  const config = await fetchConfig();
-  browserClient = createClient(config.url, config.anonKey, {
-    auth: {
-      persistSession: true,
-      autoRefreshToken: true,
-      detectSessionInUrl: true,
-    },
-  });
-  
-  return browserClient;
+  if (!browserClientPromise) {
+    browserClientPromise = fetchConfig()
+      .then(config => {
+        if (!browserClient) {
+          browserClient = createClient(config.url, config.anonKey, {
+            auth: {
+              persistSession: true,
+              autoRefreshToken: true,
+              detectSessionInUrl: true,
+            },
+          });
+        }
+        return browserClient;
+      })
+      .catch(err => {
+        browserClientPromise = null;
+        throw err;
+      });
+  }
+
+  return browserClientPromise;
 }
 
 export async function getSupabaseBrowserClientWithRetry(

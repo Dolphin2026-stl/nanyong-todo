@@ -2,35 +2,35 @@
 
 import { useEffect, useState, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
+import { getSupabaseBrowserClientWithRetry } from '@/lib/supabase-browser';
 import { AppLogo, SuccessIllustration } from '@/components/illustrations';
 import Link from 'next/link';
 
 function VerifyEmailContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [status, setStatus] = useState<'verifying' | 'success' | 'error'>('verifying');
+  const [status, setStatus] = useState<'verifying' | 'sent' | 'success' | 'error'>('verifying');
   const [errorMsg, setErrorMsg] = useState('');
 
   useEffect(() => {
     const verifyEmail = async () => {
-      const token = searchParams.get('token');
-      const type = searchParams.get('type');
-      
-      if (!token || type !== 'signup') {
-        setStatus('error');
-        setErrorMsg('无效的验证链接');
+      if (searchParams.get('sent') === '1') {
+        setStatus('sent');
         return;
       }
 
       try {
-        const supabase = createBrowserSupabaseClient();
-        const { error } = await supabase.auth.verifyOtp({
-          token_hash: token,
-          type: 'signup',
-        });
+        const callbackError = new URLSearchParams(window.location.hash.slice(1)).get('error_description');
+        if (callbackError) throw new Error(callbackError);
 
+        // Supabase verifies the email at its confirmation endpoint, then returns a
+        // session in the URL fragment. The browser client consumes that fragment.
+        const supabase = await getSupabaseBrowserClientWithRetry();
+        const { data: { session }, error } = await supabase.auth.getSession();
         if (error) throw error;
+        if (!session?.user.email_confirmed_at) {
+          throw new Error('验证链接无效或已过期，请重新注册或联系管理员。');
+        }
         setStatus('success');
       } catch (err) {
         setStatus('error');
@@ -63,6 +63,23 @@ function VerifyEmailContent() {
               </div>
               <h2 className="text-xl font-semibold text-foreground">正在验证邮箱...</h2>
               <p className="text-muted-foreground mt-2">请稍候</p>
+            </>
+          )}
+
+          {status === 'sent' && (
+            <>
+              <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-primary/10 flex items-center justify-center text-3xl" aria-hidden="true">✉</div>
+              <h2 className="text-xl font-semibold text-foreground">请查收验证邮件</h2>
+              <p className="text-muted-foreground mt-2">
+                注册信息已提交。请打开 Supabase 发来的确认邮件，点击邮件中的按钮完成邮箱验证；验证成功后会返回南雍待办。
+              </p>
+              <p className="text-sm text-muted-foreground mt-4">如果没有收到，请检查垃圾邮件，或稍后重新注册。</p>
+              <button
+                onClick={() => router.push('/login')}
+                className="mt-6 w-full py-3 bg-primary text-primary-foreground rounded-xl font-medium hover:opacity-90 transition-opacity"
+              >
+                返回登录
+              </button>
             </>
           )}
 

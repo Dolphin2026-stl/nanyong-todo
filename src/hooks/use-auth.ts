@@ -112,6 +112,9 @@ export function useAuth() {
         data: {
           nickname: nickname || email.split('@')[0],
         },
+        emailRedirectTo: typeof window !== 'undefined'
+          ? `${window.location.origin}${appUrl('/verify-email')}`
+          : undefined,
       },
     });
     

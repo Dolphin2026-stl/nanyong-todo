@@ -45,7 +45,8 @@ export default function RegisterPage() {
       
       if (data.user && !data.session) {
         // 需要邮箱验证
-        toast.info('注册成功！请查收验证邮件完成注册');
+        router.push('/verify-email?sent=1');
+        return;
       } else {
         toast.success('注册成功！欢迎加入南雍待办');
       }
