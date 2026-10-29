@@ -1,19 +1,19 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useApp, taskTypeLabels, taskPriorityLabels, taskImportanceLabels, TaskType, TaskPriority, TaskImportance } from '@/lib/app-context';
-import { useAuth } from '@/hooks/use-auth';
 import { useAppToast } from '@/lib/toast-provider';
 import AppLayout from '@/components/app-layout';
+import { parseDateInput, toIsoDateTime } from '@/lib/task-dates';
+import { appUrl } from '@/lib/app-url';
 
 type ImportMode = 'form' | 'ai';
 
 export default function AddTaskPage() {
   const [mode, setMode] = useState<ImportMode>('form');
   const router = useRouter();
-  const { addTask, settings, updateSettings } = useApp();
-  const { getAccessToken } = useAuth();
+  const { addTask, settings, updateSettings, tags, refreshTags } = useApp();
   const toast = useAppToast();
 
   // 表单模式状态
@@ -26,7 +26,11 @@ export default function AddTaskPage() {
   const [priority, setPriority] = useState<TaskPriority>('medium');
   const [importance, setImportance] = useState<TaskImportance>('normal');
   const [description, setDescription] = useState('');
+  const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  const [isLongTerm, setIsLongTerm] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  useEffect(() => { void refreshTags(); }, [refreshTags]);
 
   // 选择任务类型时应用默认的优先级/重要程度（课程默认：低优先级+普通）
   const handleTypeSelect = (type: TaskType) => {
@@ -87,10 +91,10 @@ export default function AddTaskPage() {
 
     setIsSubmitting(true);
     try {
-      const token = await getAccessToken();
-      
-      const start_time = startDate && startTime ? `${startDate}T${startTime}` : undefined;
-      const end_time = endDate && endTime ? `${endDate}T${endTime}` : undefined;
+      const start_time = toIsoDateTime(startDate, startTime, '00:00');
+      const end_time = toIsoDateTime(endDate, endTime, '23:59');
+      if (isLongTerm && !end_time) throw new Error('长远目标需要填写截止日期（DDL）');
+      if (start_time && end_time && new Date(start_time) > new Date(end_time)) throw new Error('开始时间不能晚于截止时间');
 
       await addTask({
         title: title.trim(),
@@ -100,12 +104,14 @@ export default function AddTaskPage() {
         importance,
         start_time,
         end_time,
+        tags: selectedTags,
+        is_long_term: isLongTerm,
       });
       
       toast.success('任务添加成功！');
       router.push('/dashboard');
     } catch (err) {
-      toast.error('添加任务失败，请重试');
+      toast.error(err instanceof Error ? err.message : '添加任务失败，请重试');
     } finally {
       setIsSubmitting(false);
     }
@@ -124,7 +130,7 @@ export default function AddTaskPage() {
 
     setIsParsing(true);
     try {
-      const res = await fetch('/api/ai-parse', {
+      const res = await fetch(appUrl('/api/ai-parse'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -286,9 +292,12 @@ export default function AddTaskPage() {
                   <label className="text-xs text-muted-foreground mb-1.5 block">开始时间（可选）</label>
                   <div className="flex gap-2">
                     <input
-                      type="date"
+                      type="text"
+                      inputMode="numeric"
+                      placeholder="YYYY/MM/DD"
                       value={startDate}
                       onChange={e => setStartDate(e.target.value)}
+                      onBlur={() => { const date = parseDateInput(startDate); if (date) setStartDate(date); }}
                       className="flex-1 px-3 py-2 rounded-lg border border-input bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary text-sm"
                     />
                     <input
@@ -303,9 +312,12 @@ export default function AddTaskPage() {
                   <label className="text-xs text-muted-foreground mb-1.5 block">截止时间（可选）</label>
                   <div className="flex gap-2">
                     <input
-                      type="date"
+                      type="text"
+                      inputMode="numeric"
+                      placeholder="YYYY/MM/DD"
                       value={endDate}
                       onChange={e => setEndDate(e.target.value)}
+                      onBlur={() => { const date = parseDateInput(endDate); if (date) setEndDate(date); }}
                       className="flex-1 px-3 py-2 rounded-lg border border-input bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary text-sm"
                     />
                     <input
@@ -318,6 +330,19 @@ export default function AddTaskPage() {
                 </div>
               </div>
             </div>
+
+            <label className="flex items-center gap-2 text-sm text-foreground">
+              <input type="checkbox" checked={isLongTerm} onChange={e => setIsLongTerm(e.target.checked)} className="accent-primary" />
+              作为长远目标 <span className="text-xs text-muted-foreground">（按截止日期 DDL 倒计时，显示在主看板）</span>
+            </label>
+
+            {tags.length > 0 && <div>
+              <p className="text-sm font-medium text-foreground mb-2">标签</p>
+              <div className="flex flex-wrap gap-2">{tags.map(tag => <label key={tag.id} className="inline-flex items-center gap-1.5 rounded-full border border-border px-3 py-1.5 text-xs cursor-pointer">
+                <input type="checkbox" checked={selectedTags.includes(tag.id)} onChange={e => setSelectedTags(current => e.target.checked ? [...current, tag.id] : current.filter(id => id !== tag.id))} />
+                #{tag.name}
+              </label>)}</div>
+            </div>}
 
             {/* 步骤4：优先级 */}
             <div>

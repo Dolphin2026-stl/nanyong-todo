@@ -1,9 +1,12 @@
 'use client';
 
 import { createContext, useContext, useEffect, useState, ReactNode, useCallback } from 'react';
+import { appUrl } from '@/lib/app-url';
+
+const themeImage = (name: string) => `url("${appUrl(`/themes/${name}`)}")`;
 
 export type ThemeColor = 'nanda-purple' | 'teal' | 'sky' | 'gold';
-export type ThemeStyle = 'natural' | 'modern' | 'nanda-fun' | 'custom';
+export type ThemeStyle = 'natural' | 'modern' | 'nanda-fun' | 'long-march' | 'red-revolution' | 'cyberpunk' | 'custom';
 
 export interface ThemeConfig {
   color: ThemeColor;
@@ -26,7 +29,7 @@ export interface StyleThemeInfo {
   name: string;
   icon: string;
   /** 内置背景图集（每个风格 3 张可选，用 CSS 渐变/图案模拟，离线可用） */
-  backgrounds: { id: string; name: string; css: string }[];
+  backgrounds: { id: string; name: string; css: string; position?: string }[];
 }
 
 export const colorSchemes: Record<ThemeColor, ColorSchemeInfo> = {
@@ -50,25 +53,28 @@ export const styleThemes: Record<ThemeStyle, StyleThemeInfo> = {
     name: '现代',
     icon: '✨',
     backgrounds: [
-      { id: 'modern-clean', name: '极简灰蓝', css: 'linear-gradient(180deg, #f8fafc 0%, #f1f5f9 50%, #e2e8f0 100%)' },
-      { id: 'modern-grid', name: '网格蓝图', css: 'linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%)' },
-      { id: 'modern-aurora', name: '极光渐变', css: 'linear-gradient(135deg, #e0f2fe 0%, #ede9fe 50%, #fce7f3 100%)' },
+      { id: 'modern-clean', name: '极简灰蓝', css: 'linear-gradient(180deg, #f8fafc 0%, #dbe4ed 100%)' },
+      { id: 'modern-grid', name: '网格蓝图', css: 'linear-gradient(90deg, rgba(42,86,145,.11) 1px, transparent 1px), linear-gradient(rgba(42,86,145,.11) 1px, transparent 1px), linear-gradient(135deg, #ecf5ff, #c6d9ed)' },
+      { id: 'modern-aurora', name: '极光渐变', css: 'radial-gradient(circle at 70% 20%, #ec9fe8 0%, transparent 35%), radial-gradient(circle at 15% 85%, #83d9d0 0%, transparent 45%), linear-gradient(135deg, #dce7ff, #f8e6fb)' },
     ],
   },
   'nanda-fun': {
     name: '南哪',
     icon: '🏫',
     backgrounds: [
-      { id: 'nanda-xianlin-square', name: '仙林二源广场', css: 'url(/themes/仙林校区二源广场.jpg)' },
-      { id: 'nanda-xianlin-spring', name: '仙林春景', css: 'url(/themes/仙林校区春景.jpg)' },
-      { id: 'nanda-gulou-tower', name: '鼓楼北大楼', css: 'url(/themes/鼓楼北大楼.jpg)' },
-      { id: 'nanda-gulou-spring', name: '鼓楼春景', css: 'url(/themes/鼓楼校区春景.jpg)' },
-      { id: 'nanda-gulou-gate', name: '鼓楼校门', css: 'url(/themes/鼓楼校门.jpg)' },
-      { id: 'nanda-suzhou-swan', name: '苏州天鹅', css: 'url(/themes/苏州天鹅.jpg)' },
-      { id: 'nanda-suzhou-view', name: '苏州景色', css: 'url(/themes/苏州景色.jpg)' },
-      { id: 'nanda-suzhou-cat', name: '苏州猫咪', css: 'url(/themes/苏州猫咪.jpg)' },
+      { id: 'nanda-xianlin-square', name: '仙林二源广场', css: themeImage('仙林校区二源广场.jpg'), position: 'center 78%' },
+      { id: 'nanda-xianlin-spring', name: '仙林春景', css: themeImage('仙林校区春景.jpg'), position: 'center 72%' },
+      { id: 'nanda-gulou-tower', name: '鼓楼北大楼', css: themeImage('鼓楼北大楼.jpg'), position: 'center 70%' },
+      { id: 'nanda-gulou-spring', name: '鼓楼春景', css: themeImage('鼓楼校区春景.jpg'), position: 'center 75%' },
+      { id: 'nanda-gulou-gate', name: '鼓楼校门', css: themeImage('鼓楼校门.jpg'), position: 'center 78%' },
+      { id: 'nanda-suzhou-swan', name: '苏州天鹅', css: themeImage('苏州天鹅.jpg'), position: 'center 70%' },
+      { id: 'nanda-suzhou-view', name: '苏州景色', css: themeImage('苏州景色.jpg'), position: 'center 75%' },
+      { id: 'nanda-suzhou-cat', name: '苏州猫咪', css: themeImage('苏州猫咪.jpg'), position: 'center 78%' },
     ],
   },
+  'long-march': { name: '长征纪念版', icon: '🚩', backgrounds: [{ id: 'long-march-art', name: '长征与未来', css: themeImage('长征纪念.png'), position: 'center 48%' }] },
+  'red-revolution': { name: '红色革命版', icon: '🔥', backgrounds: [{ id: 'red-sunrise', name: '红色晨曦', css: 'radial-gradient(circle at 75% 15%, #efb866 0%, transparent 34%), linear-gradient(145deg, #5d1019 0%, #a12128 55%, #6e111c 100%)' }] },
+  'cyberpunk': { name: '赛博朋克版', icon: '⚡', backgrounds: [{ id: 'cyber-grid', name: '霓虹矩阵', css: 'linear-gradient(90deg, rgba(0,255,236,.1) 1px, transparent 1px), linear-gradient(rgba(0,255,236,.1) 1px, transparent 1px), radial-gradient(circle at 85% 10%, #472479, transparent 45%), linear-gradient(135deg, #0b1028, #121d3a)' }] },
   'custom': {
     name: '自定义',
     icon: '🎨',
@@ -139,7 +145,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       const selected = styleInfo?.backgrounds?.find(b => b.id === theme.backgroundId);
       if (selected) {
         // 标记 body 使用图片背景（CSS 据此隐藏 body::before 的默认渐变）
-        document.body.setAttribute('data-bg-photo', selected.css.startsWith('url(') ? 'true' : 'false');
+        document.body.setAttribute('data-bg-photo', 'true');
         let bgEl = document.getElementById('builtin-bg-layer');
         if (!bgEl) {
           bgEl = document.createElement('div');
@@ -149,6 +155,8 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
           document.body.insertBefore(bgEl, document.body.firstChild);
         }
         bgEl.style.backgroundImage = selected.css;
+        bgEl.style.backgroundPosition = selected.position || 'center';
+        bgEl.style.backgroundSize = selected.id === 'modern-grid' || selected.id === 'cyber-grid' ? '32px 32px, 32px 32px, cover' : 'cover';
         // 图片背景（url）加白色半透明遮罩，保证文字可读性
         if (selected.css.startsWith('url(')) {
           let overlayEl = document.getElementById('builtin-bg-overlay');
@@ -159,6 +167,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
             if (bgEl.nextSibling) bgEl.parentNode?.insertBefore(overlayEl, bgEl.nextSibling);
             else bgEl.parentNode?.appendChild(overlayEl);
           }
+          overlayEl.style.background = theme.style === 'long-march' ? 'rgba(255,255,255,0.38)' : 'rgba(255,255,255,0.55)';
         } else {
           const overlayEl = document.getElementById('builtin-bg-overlay');
           if (overlayEl) overlayEl.remove();
@@ -227,7 +236,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     // 切换风格时：如果不是 custom，清掉 customBackground；保留 backgroundId 由 UI 选择
     if (style !== 'custom') {
       const { customBackground: _, ...rest } = theme;
-      saveTheme({ ...rest, style, backgroundId: theme.backgroundId || undefined } as ThemeConfig);
+      saveTheme({ ...rest, style, backgroundId: styleThemes[style].backgrounds[0]?.id } as ThemeConfig);
     } else {
       saveTheme({ ...theme, style });
     }

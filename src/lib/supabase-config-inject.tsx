@@ -1,6 +1,7 @@
 'use client';
 
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
+import { appUrl } from '@/lib/app-url';
 
 interface SupabaseConfig {
   url: string;
@@ -29,7 +30,7 @@ export function SupabaseConfigProvider({ children }: { children: ReactNode }) {
 
     async function fetchConfig() {
       try {
-        const res = await fetch('/api/supabase-config');
+        const res = await fetch(appUrl('/api/supabase-config'));
         if (!res.ok) throw new Error('获取配置失败');
         const data = await res.json();
         if (mounted) {

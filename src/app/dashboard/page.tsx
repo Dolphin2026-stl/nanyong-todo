@@ -2,22 +2,34 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { useApp, taskTypeLabels, taskPriorityLabels } from '@/lib/app-context';
+import { taskScheduleTime, taskScheduleLabel } from '@/lib/task-dates';
 import { useAuth } from '@/hooks/use-auth';
 import { useAppToast } from '@/lib/toast-provider';
 import { EmptyTasksIllustration, LoadingIllustration } from '@/components/illustrations';
 import AppLayout from '@/components/app-layout';
+import { useTheme } from '@/lib/theme-context';
 
 type ViewType = 'day' | 'week';
+const chartPalette = ['#6d3d8c', '#3b82f6', '#ef4444', '#eab308', '#64748b'];
+const dailyQuotes = [
+  { text: '雄关漫道真如铁，而今迈步从头越。', by: '毛泽东《忆秦娥·娄山关》', url: 'https://www.mod.gov.cn/gfbw/gfjy_index/16485064.html' },
+  { text: '世上无难事，只要肯登攀。', by: '毛泽东《水调歌头·重上井冈山》', url: 'https://www.mod.gov.cn/gfbw/jmsd/4909819.html' },
+  { text: '幸福都是奋斗出来的。', by: '习近平 · 新年贺词', url: 'https://www.moe.gov.cn/jyb_xwfb/moe_176/202506/t20250630_1196067.html' },
+  { text: '团结奋斗是中国人民创造历史伟业的必由之路。', by: '习近平 · 团结奋斗', url: 'https://www.moe.gov.cn/jyb_xwfb/moe_176/202506/t20250630_1196067.html' },
+];
 
 export default function DashboardPage() {
-  const { tasks, isLoading, refreshTasks, toggleTaskComplete, deleteTask, settings } = useApp();
+  const { tasks, tags, isLoading, refreshTasks, refreshTags, toggleTaskComplete, deleteTask, settings } = useApp();
   const { getAccessToken } = useAuth();
   const toast = useAppToast();
+  const { styleTheme } = useTheme();
+  const [quoteIndex, setQuoteIndex] = useState(0);
   const [view, setView] = useState<ViewType>('day');
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [countdowns, setCountdowns] = useState<Record<string, string>>({});
   const [hasLoaded, setHasLoaded] = useState(false);
+  useEffect(() => { setQuoteIndex(new Date().getDate() % dailyQuotes.length); }, []);
 
   // 加载任务
   useEffect(() => {
@@ -25,11 +37,12 @@ export default function DashboardPage() {
       const token = await getAccessToken();
       if (token) {
         await refreshTasks();
+        await refreshTags();
         setHasLoaded(true);
       }
     }
     load();
-  }, [refreshTasks, getAccessToken]);
+  }, [refreshTasks, refreshTags, getAccessToken]);
 
   // 紧急任务筛选
   const urgentTasks = useMemo(() => {
@@ -48,14 +61,37 @@ export default function DashboardPage() {
     return tasks
       .filter(task => {
         if (task.is_completed) return false;
-        if (!task.end_time) return false;
-        const endDate = new Date(task.end_time);
+        const scheduleTime = taskScheduleTime(task);
+        if (!scheduleTime || task.is_long_term) return false;
+        const endDate = new Date(scheduleTime);
         const importance = importanceRank[task.importance] || 0;
         return endDate <= threshold && importance >= minImportance;
       })
-      .sort((a, b) => new Date(a.end_time!).getTime() - new Date(b.end_time!).getTime())
+      .sort((a, b) => new Date(taskScheduleTime(a)!).getTime() - new Date(taskScheduleTime(b)!).getTime())
       .slice(0, 3);
   }, [tasks, settings]);
+
+  const longTermTasks = useMemo(() => tasks.filter(task => task.is_long_term && !task.is_completed && task.end_time)
+    .sort((a, b) => new Date(a.end_time!).getTime() - new Date(b.end_time!).getTime()), [tasks]);
+
+  const monthStats = useMemo(() => {
+    const now = new Date();
+    const inMonth = (iso?: string) => iso && new Date(iso).getFullYear() === now.getFullYear() && new Date(iso).getMonth() === now.getMonth();
+    const scheduled = tasks.filter(task => inMonth(taskScheduleTime(task)));
+    const completed = tasks.filter(task => task.is_completed && inMonth(task.completed_at)).length;
+    const types = (Object.keys(taskTypeLabels) as Array<keyof typeof taskTypeLabels>).map(type => ({ type, label: taskTypeLabels[type], count: scheduled.filter(task => task.task_type === type).length }));
+    return { scheduled: scheduled.length, completed, types };
+  }, [tasks]);
+  const pieGradient = useMemo(() => {
+    if (!monthStats.scheduled) return 'conic-gradient(#e5e7eb 0 100%)';
+    let offset = 0;
+    const slices = monthStats.types.map((item, index) => {
+      const start = offset;
+      offset += item.count / monthStats.scheduled * 100;
+      return `${chartPalette[index]} ${start}% ${offset}%`;
+    });
+    return `conic-gradient(${slices.join(',')})`;
+  }, [monthStats]);
 
   // 倒计时更新
   useEffect(() => {
@@ -63,9 +99,10 @@ export default function DashboardPage() {
       const now = new Date().getTime();
       const newCountdowns: Record<string, string> = {};
       
-      urgentTasks.forEach(task => {
-        if (task.end_time) {
-          const end = new Date(task.end_time).getTime();
+      [...urgentTasks, ...longTermTasks].forEach(task => {
+        const scheduleTime = taskScheduleTime(task);
+        if (scheduleTime) {
+          const end = new Date(scheduleTime).getTime();
           const diff = end - now;
           
           if (diff > 0) {
@@ -74,15 +111,17 @@ export default function DashboardPage() {
             const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
             const seconds = Math.floor((diff % (1000 * 60)) / 1000);
             
-            if (days > 0) {
-              newCountdowns[task.id] = `${days}天 ${hours}时 ${minutes}分`;
+            if (days >= 7) {
+              newCountdowns[task.id] = `${days}天`;
+            } else if (days > 0) {
+              newCountdowns[task.id] = `${days}天 ${hours}时 ${minutes}分 ${seconds}秒`;
             } else if (hours > 0) {
               newCountdowns[task.id] = `${hours}时 ${minutes}分 ${seconds}秒`;
             } else {
               newCountdowns[task.id] = `${minutes}分 ${seconds}秒`;
             }
           } else {
-            newCountdowns[task.id] = '已过期';
+            newCountdowns[task.id] = task.end_time ? '已过期' : '已开始';
           }
         }
       });
@@ -93,7 +132,7 @@ export default function DashboardPage() {
     const interval = setInterval(updateCountdowns, 1000);
     updateCountdowns();
     return () => clearInterval(interval);
-  }, [urgentTasks]);
+  }, [urgentTasks, longTermTasks]);
 
   // 日视图任务
   const dayTasks = useMemo(() => {
@@ -104,12 +143,13 @@ export default function DashboardPage() {
     
     return tasks.filter(task => {
       if (task.is_completed) return false;
-      const taskDate = task.end_time ? new Date(task.end_time) : null;
+      const scheduleTime = taskScheduleTime(task);
+      const taskDate = scheduleTime ? new Date(scheduleTime) : null;
       if (!taskDate) return false;
       return taskDate >= dayStart && taskDate <= dayEnd;
     }).sort((a, b) => {
-      const aTime = a.end_time ? new Date(a.end_time).getTime() : 0;
-      const bTime = b.end_time ? new Date(b.end_time).getTime() : 0;
+      const aTime = taskScheduleTime(a) ? new Date(taskScheduleTime(a)!).getTime() : 0;
+      const bTime = taskScheduleTime(b) ? new Date(taskScheduleTime(b)!).getTime() : 0;
       return aTime - bTime;
     });
   }, [tasks, selectedDate]);
@@ -126,7 +166,8 @@ export default function DashboardPage() {
     
     return tasks.filter(task => {
       if (task.is_completed) return false;
-      const taskDate = task.end_time ? new Date(task.end_time) : null;
+      const scheduleTime = taskScheduleTime(task);
+      const taskDate = scheduleTime ? new Date(scheduleTime) : null;
       if (!taskDate) return false;
       return taskDate >= weekStart && taskDate <= weekEnd;
     });
@@ -173,7 +214,8 @@ export default function DashboardPage() {
       
       const dayTasks = tasks.filter(task => {
         if (task.is_completed) return false;
-        const taskDate = task.end_time ? new Date(task.end_time) : null;
+        const scheduleTime = taskScheduleTime(task);
+        const taskDate = scheduleTime ? new Date(scheduleTime) : null;
         if (!taskDate) return false;
         return taskDate >= dayStart && taskDate <= dayEnd;
       });
@@ -259,12 +301,13 @@ export default function DashboardPage() {
     dayEnd.setHours(23, 59, 59, 999);
     
     return weekTasks.filter(task => {
-      const taskDate = task.end_time ? new Date(task.end_time) : null;
+      const scheduleTime = taskScheduleTime(task);
+      const taskDate = scheduleTime ? new Date(scheduleTime) : null;
       if (!taskDate) return false;
       return taskDate >= dayStart && taskDate <= dayEnd;
     }).sort((a, b) => {
-      const aTime = a.end_time ? new Date(a.end_time).getTime() : 0;
-      const bTime = b.end_time ? new Date(b.end_time).getTime() : 0;
+      const aTime = taskScheduleTime(a) ? new Date(taskScheduleTime(a)!).getTime() : 0;
+      const bTime = taskScheduleTime(b) ? new Date(taskScheduleTime(b)!).getTime() : 0;
       return aTime - bTime;
     });
   };
@@ -277,6 +320,12 @@ export default function DashboardPage() {
           <h1 className="text-2xl font-bold text-foreground">主看板</h1>
           <p className="text-muted-foreground mt-1">管理你的每日待办事项</p>
         </div>
+        {(styleTheme === 'red-revolution' || styleTheme === 'long-march') && <aside className="rounded-xl border border-red-300/50 bg-red-950/85 text-amber-50 px-5 py-4 shadow-lg">
+          <span className="text-xs tracking-widest text-amber-300">🚩 今日一句</span>
+          <p className="font-serif text-lg mt-1">“{dailyQuotes[quoteIndex].text}”</p>
+          <a href={dailyQuotes[quoteIndex].url} target="_blank" rel="noopener noreferrer" className="text-xs text-amber-200 underline underline-offset-4">— {dailyQuotes[quoteIndex].by} · 查看出处</a>
+          <p className="text-xs text-amber-200/70 border-t border-amber-200/20 mt-3 pt-2">雄关漫道真如铁，而今迈步从头越。</p>
+        </aside>}
 
         <div className="grid lg:grid-cols-3 gap-6">
           {/* 左侧：最近安排 */}
@@ -391,17 +440,18 @@ export default function DashboardPage() {
                             {task.title}
                           </h4>
                           <div className="flex items-center gap-3 mt-1 flex-wrap">
-                            {task.end_time && (
+                            {taskScheduleTime(task) && (
                               <span className="text-xs text-muted-foreground flex items-center gap-1">
                                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                                 </svg>
-                                {formatTime(task.end_time)}
+                                {taskScheduleLabel(task)} {formatTime(taskScheduleTime(task))}
                               </span>
                             )}
                             <span className="text-xs text-muted-foreground">
                               {taskPriorityLabels[task.priority as keyof typeof taskPriorityLabels]}优先级
                             </span>
+                            {task.tags?.map(id => { const tag = tags.find(item => item.id === id); return tag ? <span key={id} className="text-xs rounded-full px-2 py-0.5 bg-primary/10 text-primary">#{tag.name}</span> : null; })}
                           </div>
                           {task.description && (
                             <p className="text-sm text-muted-foreground mt-1 line-clamp-2">
@@ -456,7 +506,7 @@ export default function DashboardPage() {
                             <div
                               key={task.id}
                               className={`text-xs p-1.5 rounded text-left truncate ${getTypeColor(task.task_type)} text-white cursor-pointer hover:opacity-80 transition-opacity`}
-                              title={`${task.title} - ${formatTime(task.end_time)}`}
+                              title={`${task.title} - ${taskScheduleLabel(task)} ${formatTime(taskScheduleTime(task))}`}
                               onClick={() => {
                                 setSelectedDate(date);
                                 setView('day');
@@ -477,6 +527,15 @@ export default function DashboardPage() {
                 </div>
               </div>
             )}
+
+            <section className="bg-card border border-border rounded-xl p-5" aria-label="长远目标">
+              <h2 className="text-lg font-semibold mb-3">🚩 长远目标</h2>
+              {longTermTasks.length === 0 ? <p className="text-sm text-muted-foreground">在添加任务时勾选“作为长远目标”，这里就会显示 DDL 倒计时。</p> : <div className="grid sm:grid-cols-2 gap-3">{longTermTasks.map(task => <div key={task.id} className="rounded-xl border border-primary/20 bg-primary/5 p-4">
+                <p className="font-medium">{task.title}</p>
+                <p className="text-xl font-mono font-bold text-primary mt-2">{countdowns[task.id] || '计算中...'}</p>
+                <p className="text-xs text-muted-foreground mt-1">DDL · {new Date(task.end_time!).toLocaleString('zh-CN')}</p>
+              </div>)}</div>}
+            </section>
           </div>
 
           {/* 右侧：迫在眉睫 + 本月规划 */}
@@ -531,6 +590,7 @@ export default function DashboardPage() {
                                     </svg>
                                     <span className="font-mono font-bold text-white tracking-tight">
                                       {countdowns[task.id] || '计算中...'}
+                                      {!isExpired && <span className="ml-1 opacity-80">【{taskScheduleLabel(task)}】</span>}
                                     </span>
                                   </div>
                                 )}
@@ -660,6 +720,20 @@ export default function DashboardPage() {
             </div>
           </div>
         </div>
+        <section className="bg-card border border-border rounded-xl p-5" aria-label="阶段数据可视化">
+          <h2 className="text-lg font-semibold">📊 阶段数据 · 本月</h2>
+          <div className="grid md:grid-cols-[180px_1fr] gap-8 items-center mt-5">
+            <div className="relative mx-auto w-40 h-40 rounded-full" style={{ background: pieGradient }} role="img" aria-label={`本月任务类型占比，共 ${monthStats.scheduled} 项`}>
+              <div className="absolute inset-7 rounded-full bg-card flex flex-col items-center justify-center"><b className="text-2xl">{monthStats.scheduled}</b><span className="text-xs text-muted-foreground">本月安排</span></div>
+            </div>
+            <div className="space-y-2">
+              <p className="text-sm">本月已完成 <strong className="text-primary">{monthStats.completed}</strong> 项任务</p>
+              {monthStats.types.map((item, index) => <div key={item.type} className="grid grid-cols-[36px_1fr_34px] items-center gap-2 text-xs">
+                <span>{item.label}</span><div className="h-3 bg-muted rounded-full overflow-hidden"><div className="h-full rounded-full" style={{ width: `${monthStats.scheduled ? item.count / monthStats.scheduled * 100 : 0}%`, background: chartPalette[index] }} /></div><span className="text-right">{item.count}</span>
+              </div>)}
+            </div>
+          </div>
+        </section>
       </div>
     </AppLayout>
   );

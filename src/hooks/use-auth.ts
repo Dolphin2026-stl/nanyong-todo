@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { getSupabaseBrowserClientWithRetry } from '@/lib/supabase-browser';
 import type { User, Session } from '@supabase/supabase-js';
+import { appUrl } from '@/lib/app-url';
 
 interface AuthState {
   user: User | null;
@@ -135,7 +136,7 @@ export function useAuth() {
   const resetPassword = useCallback(async (email: string) => {
     const supabase = await getSupabaseBrowserClientWithRetry();
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: typeof window !== 'undefined' ? `${window.location.origin}/reset-password` : undefined,
+      redirectTo: typeof window !== 'undefined' ? `${window.location.origin}${appUrl('/reset-password')}` : undefined,
     });
     
     if (error) throw error;

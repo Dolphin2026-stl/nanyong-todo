@@ -1,4 +1,5 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { appUrl } from '@/lib/app-url';
 
 let browserClient: SupabaseClient | null = null;
 let configPromise: Promise<{ url: string; anonKey: string }> | null = null;
@@ -6,7 +7,7 @@ let configPromise: Promise<{ url: string; anonKey: string }> | null = null;
 async function fetchConfig(): Promise<{ url: string; anonKey: string }> {
   if (configPromise) return configPromise;
   
-  configPromise = fetch('/api/supabase-config')
+  configPromise = fetch(appUrl('/api/supabase-config'))
     .then(res => {
       if (!res.ok) throw new Error('获取Supabase配置失败');
       return res.json();

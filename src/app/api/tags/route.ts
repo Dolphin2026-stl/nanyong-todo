@@ -1,17 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getSupabaseClient } from '@/storage/database/supabase-client';
+import { requireUser } from '@/lib/api-auth';
 
 export const dynamic = 'force-dynamic';
 
 // 获取所有标签
 export async function GET(request: NextRequest) {
   try {
-    const token = request.headers.get('x-session') ?? undefined;
-    const supabase = getSupabaseClient(token);
+    const { supabase, userId } = await requireUser(request);
     
     const { data, error } = await supabase
       .from('tags')
       .select('*')
+      .eq('user_id', userId)
       .order('created_at', { ascending: true });
     
     if (error) throw error;
@@ -28,8 +28,7 @@ export async function GET(request: NextRequest) {
 // 创建标签
 export async function POST(request: NextRequest) {
   try {
-    const token = request.headers.get('x-session') ?? undefined;
-    const supabase = getSupabaseClient(token);
+    const { supabase, userId } = await requireUser(request);
     
     const body = await request.json();
     
@@ -38,6 +37,7 @@ export async function POST(request: NextRequest) {
       .insert({
         name: body.name,
         color: body.color || null,
+        user_id: userId,
       })
       .select()
       .single();

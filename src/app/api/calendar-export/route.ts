@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getSupabaseClient } from '@/storage/database/supabase-client';
+import { requireUser } from '@/lib/api-auth';
 
 export const dynamic = 'force-dynamic';
 
@@ -27,14 +27,14 @@ const taskTypeLabels: Record<string, string> = {
 
 export async function GET(request: NextRequest) {
   try {
-    const token = request.headers.get('x-session') ?? undefined;
-    const supabase = getSupabaseClient(token);
+    const { supabase, userId } = await requireUser(request);
     
     // 获取所有未完成任务
     const { data: tasks, error } = await supabase
       .from('tasks')
       .select('*')
       .eq('is_completed', false)
+      .eq('user_id', userId)
       .order('end_time', { ascending: true, nullsFirst: false });
     
     if (error) throw error;

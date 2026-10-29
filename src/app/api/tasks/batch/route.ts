@@ -1,13 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getSupabaseClient } from '@/storage/database/supabase-client';
+import { requireUser } from '@/lib/api-auth';
 
 export const dynamic = 'force-dynamic';
 
 // 批量更新任务（统一设置优先级/重要程度/标签等）
 export async function PATCH(request: NextRequest) {
   try {
-    const token = request.headers.get('x-session') ?? undefined;
-    const supabase = getSupabaseClient(token);
+    const { supabase, userId } = await requireUser(request);
 
     const body = await request.json();
     const ids: string[] = Array.isArray(body?.ids) ? body.ids : [];
@@ -41,6 +40,7 @@ export async function PATCH(request: NextRequest) {
       .from('tasks')
       .update(cleanUpdates)
       .in('id', ids)
+      .eq('user_id', userId)
       .select();
 
     if (error) throw error;
@@ -57,8 +57,7 @@ export async function PATCH(request: NextRequest) {
 // 批量删除任务
 export async function DELETE(request: NextRequest) {
   try {
-    const token = request.headers.get('x-session') ?? undefined;
-    const supabase = getSupabaseClient(token);
+    const { supabase, userId } = await requireUser(request);
 
     const body = await request.json();
     const ids: string[] = Array.isArray(body?.ids) ? body.ids : [];
@@ -71,6 +70,7 @@ export async function DELETE(request: NextRequest) {
       .from('tasks')
       .delete()
       .in('id', ids)
+      .eq('user_id', userId)
       .select();
 
     if (error) throw error;

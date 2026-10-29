@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useState, useCallback, ReactNode } from 'react';
 import { getSupabaseBrowserClientWithRetry } from '@/lib/supabase-browser';
+import { appUrl } from '@/lib/app-url';
 
 /** 获取当前登录用户的 access token，用于 API 认证头 */
 async function getSessionToken(): Promise<string | undefined> {
@@ -40,6 +41,7 @@ export interface Task {
   is_completed: boolean;
   completed_at?: string;
   tags?: string[];
+  is_long_term?: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -119,7 +121,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const refreshTasks = useCallback(async () => {
     try {
       const headers = await authHeaders();
-      const res = await fetch('/api/tasks', { headers });
+      const res = await fetch(appUrl('/api/tasks'), { headers });
       if (res.ok) {
         const data = await res.json();
         setTasks(data.tasks || []);
@@ -134,7 +136,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const refreshTags = useCallback(async () => {
     try {
       const headers = await authHeaders();
-      const res = await fetch('/api/tags', { headers });
+      const res = await fetch(appUrl('/api/tags'), { headers });
       if (res.ok) {
         const data = await res.json();
         setTags(data.tags || []);
@@ -146,7 +148,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const addTask = useCallback(async (task: Omit<Task, 'id' | 'created_at' | 'updated_at' | 'is_completed'>): Promise<Task> => {
     const headers = await authHeaders(true);
-    const res = await fetch('/api/tasks', {
+    const res = await fetch(appUrl('/api/tasks'), {
       method: 'POST',
       headers,
       body: JSON.stringify(task),
@@ -162,10 +164,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const updateTask = useCallback(async (id: string, updates: Partial<Task>) => {
     const headers = await authHeaders(true);
-    const res = await fetch(`/api/tasks/${id}`, {
+    const payload: Record<string, unknown> = { ...updates };
+    if (Object.prototype.hasOwnProperty.call(updates, 'start_time')) payload.start_time = updates.start_time ?? null;
+    if (Object.prototype.hasOwnProperty.call(updates, 'end_time')) payload.end_time = updates.end_time ?? null;
+    const res = await fetch(appUrl(`/api/tasks/${id}`), {
       method: 'PATCH',
       headers,
-      body: JSON.stringify(updates),
+      body: JSON.stringify(payload),
     });
     if (!res.ok) throw new Error('更新任务失败');
     const data = await res.json();
@@ -174,7 +179,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const deleteTask = useCallback(async (id: string) => {
     const headers = await authHeaders();
-    const res = await fetch(`/api/tasks/${id}`, {
+    const res = await fetch(appUrl(`/api/tasks/${id}`), {
       method: 'DELETE',
       headers,
     });
@@ -186,7 +191,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const batchUpdateTasks = useCallback(async (ids: string[], updates: Partial<Task>) => {
     if (ids.length === 0) return;
     const headers = await authHeaders(true);
-    const res = await fetch('/api/tasks/batch', {
+    const res = await fetch(appUrl('/api/tasks/batch'), {
       method: 'PATCH',
       headers,
       body: JSON.stringify({ ids, updates }),
@@ -206,7 +211,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const batchDeleteTasks = useCallback(async (ids: string[]) => {
     if (ids.length === 0) return;
     const headers = await authHeaders(true);
-    const res = await fetch('/api/tasks/batch', {
+    const res = await fetch(appUrl('/api/tasks/batch'), {
       method: 'DELETE',
       headers,
       body: JSON.stringify({ ids }),
@@ -224,7 +229,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const addTag = useCallback(async (name: string, color?: string): Promise<Tag> => {
     const headers = await authHeaders(true);
-    const res = await fetch('/api/tags', {
+    const res = await fetch(appUrl('/api/tags'), {
       method: 'POST',
       headers,
       body: JSON.stringify({ name, color }),
@@ -237,7 +242,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const deleteTag = useCallback(async (id: string) => {
     const headers = await authHeaders();
-    const res = await fetch(`/api/tags/${id}`, {
+    const res = await fetch(appUrl(`/api/tags/${id}`), {
       method: 'DELETE',
       headers,
     });
@@ -247,7 +252,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const updateTag = useCallback(async (id: string, updates: { name?: string; color?: string }) => {
     const headers = await authHeaders(true);
-    const res = await fetch(`/api/tags/${id}`, {
+    const res = await fetch(appUrl(`/api/tags/${id}`), {
       method: 'PATCH',
       headers,
       body: JSON.stringify(updates),

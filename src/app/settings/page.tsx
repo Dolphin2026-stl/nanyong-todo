@@ -6,6 +6,8 @@ import { useTheme, colorSchemes, styleThemes, ThemeColor, ThemeStyle } from '@/l
 import { useAuth } from '@/hooks/use-auth';
 import { useAppToast } from '@/lib/toast-provider';
 import AppLayout from '@/components/app-layout';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { appUrl } from '@/lib/app-url';
 
 export default function SettingsPage() {
   const { settings, updateSettings } = useApp();
@@ -31,6 +33,7 @@ export default function SettingsPage() {
 
   // 导出状态
   const [isExporting, setIsExporting] = useState(false);
+  const [showDonate, setShowDonate] = useState(false);
 
   useEffect(() => {
     if (user) {
@@ -91,7 +94,7 @@ export default function SettingsPage() {
     setIsExporting(true);
     try {
       const token = await getAccessToken();
-      const res = await fetch('/api/calendar-export', {
+      const res = await fetch(appUrl('/api/calendar-export'), {
         headers: { 'x-session': token || '' },
       });
       
@@ -191,7 +194,7 @@ export default function SettingsPage() {
             {/* 配色方案 */}
             <div>
               <label className="block text-sm font-medium text-foreground mb-3">配色方案</label>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
                 {(Object.entries(colorSchemes) as [ThemeColor, typeof colorSchemes[ThemeColor]][]).map(([key, scheme]) => (
                   <button
                     key={key}
@@ -216,7 +219,7 @@ export default function SettingsPage() {
             {/* 风格主题 */}
             <div>
               <label className="block text-sm font-medium text-foreground mb-3">主题风格</label>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
                 {(Object.entries(styleThemes) as [ThemeStyle, typeof styleThemes[ThemeStyle]][]).map(([key, theme]) => (
                   <button
                     key={key}
@@ -255,7 +258,7 @@ export default function SettingsPage() {
                     >
                       <div
                         className="h-16 w-full"
-                        style={{ backgroundImage: bg.css }}
+                        style={{ backgroundImage: bg.css, backgroundPosition: bg.position || 'center', backgroundSize: bg.id === 'modern-grid' || bg.id === 'cyber-grid' ? '16px 16px, 16px 16px, cover' : 'cover' }}
                       />
                       <div className={`py-1.5 text-xs font-medium text-center ${
                         backgroundId === bg.id ? 'text-primary' : 'text-muted-foreground'
@@ -488,6 +491,11 @@ export default function SettingsPage() {
             </button>
           </div>
         </section>
+        <section className="bg-card border border-border rounded-xl p-5 flex items-center justify-between gap-4">
+          <div><h2 className="font-semibold">☕ 打赏</h2><p className="text-sm text-muted-foreground mt-1">喜欢南雍待办的话，请 dolphin 吃一点白饭吧。</p></div>
+          <button onClick={() => setShowDonate(true)} className="shrink-0 rounded-lg bg-primary px-4 py-2 text-sm text-primary-foreground">打开赞赏码</button>
+        </section>
+        <Dialog open={showDonate} onOpenChange={setShowDonate}><DialogContent className="sm:max-w-md"><DialogHeader><DialogTitle>谢谢你的支持 🐬</DialogTitle></DialogHeader><img src={appUrl('/themes/赞赏码.png')} alt="dolphin 的微信赞赏码" className="w-full max-h-[70vh] object-contain rounded-lg" /></DialogContent></Dialog>
       </div>
     </AppLayout>
   );

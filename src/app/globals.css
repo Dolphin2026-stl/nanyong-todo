@@ -564,3 +564,15 @@ body {
 .text-task-exam { color: var(--task-exam); }
 .text-task-activity { color: var(--task-activity); }
 .text-task-personal { color: var(--task-personal); }
+
+/* 纪念、红色与赛博主题保持原有表单对比度，主要改变氛围、边框与强调色。 */
+[data-style="long-march"] { --primary:#a9222c; --ring:#a9222c; --sidebar:#fff9f2; --border:#e8ccc0; --card:#fffaf4; --accent:#fce9dd; --sidebar-accent:#fce9dd; }
+[data-style="long-march"] #app-shell .bg-card { box-shadow:0 6px 24px rgba(96,22,22,.10); border-color:#d7a493; }
+[data-style="long-march"] h1::before { content:'🚩 '; font-size:.75em; }
+[data-style="red-revolution"] { --primary:#b91c2a; --ring:#b91c2a; --sidebar:#fff5ed; --border:#e6b9a7; --card:#fff8ee; --accent:#fce4d6; --sidebar-accent:#fce4d6; }
+[data-style="red-revolution"] #app-shell .bg-card { box-shadow:0 6px 26px rgba(93,16,25,.17); border-color:#d6a48d; }
+[data-style="red-revolution"] h1::before { content:'✦ '; color:#c99642; }
+[data-style="cyberpunk"] { --primary:#a21caf; --ring:#12a8b6; --sidebar:#e8eafd; --border:#a9b4e0; --card:#f5f3ff; --accent:#e5e9ff; --sidebar-accent:#dce9fc; }
+[data-style="cyberpunk"] #app-shell .bg-card { border:1px solid #818dd6; box-shadow:0 0 0 1px #1ac9d83d,0 12px 32px #180e4d2e; }
+[data-style="cyberpunk"] h1 { letter-spacing:.06em; text-shadow:2px 2px 0 #38bdf855; }
+[data-style="cyberpunk"] .bg-primary { box-shadow:0 0 15px #b128d87a; }

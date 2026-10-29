@@ -1,7 +1,11 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
-import { useApp, taskTypeLabels, taskPriorityLabels, taskImportanceLabels, taskImportanceOrder, taskImportanceStars, TaskType, TaskPriority, TaskImportance } from '@/lib/app-context';
+import { useApp, taskTypeLabels, taskPriorityLabels, taskImportanceLabels, taskImportanceOrder, taskImportanceStars, TaskType, TaskPriority, TaskImportance, type Task } from '@/lib/app-context';
+import { taskScheduleTime, taskScheduleLabel } from '@/lib/task-dates';
+import TaskEditDialog from '@/components/task-edit-dialog';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { MoreHorizontal } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import { useAppToast } from '@/lib/toast-provider';
 import { EmptyTasksIllustration, LoadingIllustration } from '@/components/illustrations';
@@ -18,7 +22,7 @@ const priorityOptions: { id: TaskPriority; label: string }[] = [
 ];
 
 export default function TasksPage() {
-  const { tasks, isLoading, refreshTasks, toggleTaskComplete, deleteTask, batchUpdateTasks, batchDeleteTasks, tags, addTag } = useApp();
+  const { tasks, isLoading, refreshTasks, refreshTags, toggleTaskComplete, deleteTask, updateTask, batchUpdateTasks, batchDeleteTasks, tags } = useApp();
   const { getAccessToken } = useAuth();
   const toast = useAppToast();
 
@@ -30,6 +34,7 @@ export default function TasksPage() {
   const [sortOrder, setSortOrder] = useState<SortOrder>('asc');
   const [search, setSearch] = useState('');
   const [hasLoaded, setHasLoaded] = useState(false);
+  const [editingTask, setEditingTask] = useState<Task | null>(null);
 
   // 批量选择状态
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -40,11 +45,12 @@ export default function TasksPage() {
       const token = await getAccessToken();
       if (token) {
         await refreshTasks();
+        await refreshTags();
         setHasLoaded(true);
       }
     }
     load();
-  }, [refreshTasks, getAccessToken]);
+  }, [refreshTasks, refreshTags, getAccessToken]);
 
   const filteredTasks = useMemo(() => {
     let result = [...tasks];
@@ -75,14 +81,9 @@ export default function TasksPage() {
       result = result.filter(t => !t.is_completed);
     }
 
-    // 标签过滤（简化：通过标题关键词模拟）
+    // 按任务关联的标签 ID 过滤
     if (filterTag !== 'all') {
-      const tag = tags.find(t => t.id === filterTag);
-      if (tag) {
-        result = result.filter(t =>
-          t.title.includes(tag.name) || (t.description || '').includes(tag.name)
-        );
-      }
+      result = result.filter(t => t.tags?.includes(filterTag));
     }
 
     // 排序
@@ -91,8 +92,8 @@ export default function TasksPage() {
       let valB: number | string = 0;
 
       if (sortField === 'end_time') {
-        valA = a.end_time ? new Date(a.end_time).getTime() : 0;
-        valB = b.end_time ? new Date(b.end_time).getTime() : 0;
+        valA = taskScheduleTime(a) ? new Date(taskScheduleTime(a)!).getTime() : Number.MAX_SAFE_INTEGER;
+        valB = taskScheduleTime(b) ? new Date(taskScheduleTime(b)!).getTime() : Number.MAX_SAFE_INTEGER;
       } else if (sortField === 'created_at') {
         valA = new Date(a.created_at).getTime();
         valB = new Date(b.created_at).getTime();
@@ -216,7 +217,7 @@ export default function TasksPage() {
   };
 
   const formatDateTime = (dateStr?: string) => {
-    if (!dateStr) return '无截止时间';
+    if (!dateStr) return '未设置时间';
     const date = new Date(dateStr);
     return date.toLocaleString('zh-CN', {
       month: 'short',
@@ -400,6 +401,14 @@ export default function TasksPage() {
             </div>
 
             <div className="flex items-center gap-2">
+              <span className="text-sm text-muted-foreground">标签:</span>
+              <select value={filterTag} onChange={e => setFilterTag(e.target.value)} className="px-3 py-1.5 rounded-lg border border-input bg-background text-foreground text-sm">
+                <option value="all">全部</option>
+                {tags.map(tag => <option key={tag.id} value={tag.id}>#{tag.name}</option>)}
+              </select>
+            </div>
+
+            <div className="flex items-center gap-2">
               <span className="text-sm text-muted-foreground">排序:</span>
               <select
                 value={`${sortField}-${sortOrder}`}
@@ -499,31 +508,26 @@ export default function TasksPage() {
                         <p className={`text-sm ${
                           isOverdue(task) ? 'text-destructive font-medium' : 'text-muted-foreground'
                         }`}>
-                          {isOverdue(task) ? '⚠️ 已过期' : formatDateTime(task.end_time)}
+                          {isOverdue(task) ? '⚠️ 已过期' : `${taskScheduleLabel(task)} · ${formatDateTime(taskScheduleTime(task))}`}
                         </p>
                         <p className="text-xs text-muted-foreground mt-1">
                           创建于 {new Date(task.created_at).toLocaleDateString('zh-CN')}
                         </p>
                       </div>
+                        {task.tags?.length ? <div className="flex flex-wrap gap-1 mt-2">{task.tags.map(id => { const tag = tags.find(item => item.id === id); return tag ? <span key={id} className="text-xs rounded-full bg-primary/10 text-primary px-2 py-0.5">#{tag.name}</span> : null; })}</div> : null}
                     </div>
                   </div>
 
-                  {!selectMode && (
-                    <button
-                      onClick={() => handleDelete(task.id)}
-                      className="p-1.5 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded transition-colors opacity-0 group-hover:opacity-100 flex-shrink-0"
-                      title="删除任务"
-                    >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                      </svg>
-                    </button>
-                  )}
+                  {!selectMode && <DropdownMenu>
+                    <DropdownMenuTrigger asChild><button type="button" className="p-2 rounded-lg text-muted-foreground hover:bg-accent flex-shrink-0" aria-label={`管理任务：${task.title}`}><MoreHorizontal className="w-5 h-5" /></button></DropdownMenuTrigger>
+                    <DropdownMenuContent align="end"><DropdownMenuItem onSelect={() => setEditingTask(task)}>编辑</DropdownMenuItem><DropdownMenuItem variant="destructive" onSelect={() => void handleDelete(task.id)}>删除</DropdownMenuItem></DropdownMenuContent>
+                  </DropdownMenu>}
                 </div>
               ))}
             </div>
           )}
         </div>
+        {editingTask && <TaskEditDialog key={editingTask.id} task={editingTask} tags={tags} onClose={() => setEditingTask(null)} onSave={updates => updateTask(editingTask.id, updates)} />}
       </div>
     </AppLayout>
   );
