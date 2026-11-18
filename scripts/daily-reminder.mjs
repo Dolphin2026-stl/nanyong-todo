@@ -11,20 +11,25 @@ const ANON_KEY = process.env.SUPABASE_ANON_KEY;
 const EMAIL = process.env.TODO_EMAIL;
 const PASSWORD = process.env.TODO_PASSWORD;
 const TOPIC = process.env.NTFY_TOPIC;
+const SCT = process.env.SCT_SENDKEY;
 
 // 北京时间的今天（UTC+8）
 const now = new Date(Date.now() + 8 * 3600 * 1000);
-const day = (t) => new Date(t + 8 * 3600 * 1000).toISOString().slice(0, 10);
+const day = (t) => new Date(new Date(t).getTime() + 8 * 3600 * 1000).toISOString().slice(0, 10);
 const today = now.toISOString().slice(0, 10);
 const weekday = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'][now.getUTCDay()];
 const hm = (iso) => new Date(iso).toLocaleTimeString('zh-CN', { timeZone: 'Asia/Shanghai', hour: '2-digit', minute: '2-digit' });
 
 async function main() {
-  for (const [k, v] of [['SUPABASE_ANON_KEY', ANON_KEY], ['TODO_EMAIL', EMAIL], ['TODO_PASSWORD', PASSWORD], ['NTFY_TOPIC', TOPIC]]) {
+  for (const [k, v] of [['SUPABASE_ANON_KEY', ANON_KEY], ['TODO_EMAIL', EMAIL], ['TODO_PASSWORD', PASSWORD]]) {
     if (!v) {
       console.error(`缺少 Secret：${k}。请到仓库 Settings → Secrets and variables → Actions 添加。`);
       process.exit(1);
     }
+  }
+  if (!SCT && !TOPIC) {
+    console.error('缺少推送配置：请设置 SCT_SENDKEY（Server酱/微信）或 NTFY_TOPIC（ntfy）。');
+    process.exit(1);
   }
 
   // 1. 登录（密码授权，走用户自己的 RLS 权限）
@@ -83,19 +88,43 @@ async function main() {
   console.log('---- 提醒内容 ----');
   console.log(body);
 
-  // 3. 推送到 ntfy
-  const p = await fetch(`https://ntfy.sh/${TOPIC}`, {
+  // 3. 推送：优先 Server酱（微信），否则 ntfy
+  const sctKey = SCT;
+  if (sctKey) {
+    const p = await fetch(`https://sctapi.ftqq.com/${sctKey}.send`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        title: `今日提醒 ${today}（${weekday}）` + (todayDeadline.some(t => t.priority === 'urgent') ? ' ⏰有硬截止' : ''),
+        desp: body,
+      }),
+    });
+    if (!p.ok) {
+      console.error('Server酱推送失败：', p.status, await p.text());
+      process.exit(1);
+    }
+    console.log('已通过 Server酱 推送到微信');
+    return;
+  }
+
+  const TOPIC = process.env.NTFY_TOPIC;
+  if (!TOPIC) {
+    console.error('未配置 SCT_SENDKEY 或 NTFY_TOPIC，无法推送');
+    process.exit(1);
+  }
+  // HTTP 头不支持中文，标题用 ntfy 的 b64: 前缀编码
+  const b64 = (s) => `b64:${Buffer.from(s, 'utf8').toString('base64')}`;
+  const p2 = await fetch(`https://ntfy.sh/${TOPIC}`, {
     method: 'POST',
     headers: {
-      Title: `今日提醒 ${today}（${weekday}）`,
+      Title: b64(`今日提醒 ${today}（${weekday}）`),
       Priority: todayDeadline.some(t => t.priority === 'urgent') ? 'high' : 'default',
       Tags: 'alarm_clock',
-      Markdown: 'no',
     },
     body,
   });
-  if (!p.ok) {
-    console.error('ntfy 推送失败：', p.status, await p.text());
+  if (!p2.ok) {
+    console.error('ntfy 推送失败：', p2.status, await p2.text());
     process.exit(1);
   }
   console.log('已推送到 ntfy 主题：', TOPIC);

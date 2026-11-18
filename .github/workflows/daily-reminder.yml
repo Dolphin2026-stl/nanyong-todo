@@ -20,5 +20,6 @@ jobs:
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           TODO_EMAIL: ${{ secrets.TODO_EMAIL }}
           TODO_PASSWORD: ${{ secrets.TODO_PASSWORD }}
+          SCT_SENDKEY: ${{ secrets.SCT_SENDKEY }}
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
         run: node scripts/daily-reminder.mjs
