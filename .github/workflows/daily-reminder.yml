@@ -2,19 +2,23 @@ name: Daily reminder
 
 on:
   schedule:
-    - cron: "45 23 * * *" # 北京时间 07:45
+    - cron: "30 0 * * *" # UTC 00:30 = 北京时间 08:30（GitHub 定时可能延迟 0–30 分钟）
   workflow_dispatch:
+
+permissions: {}
 
 jobs:
   reminder:
     runs-on: ubuntu-latest
     steps:
-      - name: Print test reminder
-        run: |
-          echo "【日期 农历 节日/历史纪念日】"
-          echo "天气概况：待接入天气数据"
-          echo "核心目标（今日截止）：待接入项目任务"
-          echo ""
-          echo "近期待办：（3-5条）待接入项目任务"
-          echo ""
-          echo "今日论文推荐：待接入论文来源"
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: 拉取今日任务并推送提醒
+        env:
+          SUPABASE_URL: https://axwaaxojosmujcdkcrhc.supabase.co
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          TODO_EMAIL: ${{ secrets.TODO_EMAIL }}
+          TODO_PASSWORD: ${{ secrets.TODO_PASSWORD }}
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+        run: node scripts/daily-reminder.mjs
