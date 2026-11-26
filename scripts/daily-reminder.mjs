@@ -65,26 +65,18 @@ async function main() {
     else if (new Date(t.end_time) < new Date()) overdue.push(t);
   }
 
-  const icon = { urgent: '🔴', high: '🟠', medium: '🟡', low: '⚪' };
-  const line = (t) => `${icon[t.priority] || '⚪'} ${t.title}${t.end_time ? `（截止 ${hm(t.end_time)}）` : ''}`;
-
-  let body = `☀️ 早上好！今天是 ${today}（${weekday}）\n`;
-  body += `\n📌 今日三件硬事候选（三选三，必须含 CACC 或硬截止）：\n`;
-  body += `• ${longTerm.some(t => t.title.includes('CACC')) ? 'CACC 每日主块（硬截止日只保底 30min）' : 'CACC 每日主块 2.5–3h'}\n`;
-  for (const t of todayDeadline.slice(0, 2)) body += `• ${t.title}\n`;
-  if (todayDeadline.length === 0) body += `• 今日无硬截止，正常跑每日模板\n`;
-
-  if (todayDeadline.length) {
-    body += `\n⏰ 今日硬截止（${todayDeadline.length} 条）：\n`;
-    body += todayDeadline.map(line).join('\n') + '\n';
-  }
-  if (overdue.length) {
-    body += `\n⚠️ 已过期未完成（${overdue.length} 条，尽快处理）：\n`;
-    body += overdue.slice(0, 5).map(line).join('\n') + (overdue.length > 5 ? `\n...等 ${overdue.length} 条` : '') + '\n';
-  }
-  body += `\n🔁 今日轮转：${weekday} → ${weekdayRotation(weekday)}\n`;
-  body += `\n🛏 睡前记得：写明天三件硬事（必须有 CACC 或硬截止）`;
-
+  // 组织成结构化数据，微信（Server酱）渲染 Markdown，ntfy 用纯文本
+  const data = {
+    today,
+    weekday,
+    cacc: longTerm.some(t => t.title.includes('CACC')) ? 'CACC 每日主块（硬截止日只保底 30min）' : 'CACC 每日主块 2.5–3h',
+    picks: todayDeadline.slice(0, 2).map(t => t.title),
+    hasDeadline: todayDeadline.length > 0,
+    todayDeadline,
+    overdue,
+    rotation: weekdayRotation(weekday),
+  };
+  const body = SCT ? mdBody(data) : plainBody(data);
   console.log('---- 提醒内容 ----');
   console.log(body);
 
@@ -128,6 +120,56 @@ async function main() {
     process.exit(1);
   }
   console.log('已推送到 ntfy 主题：', TOPIC);
+}
+
+// 微信（Server酱）版：desp 按 Markdown 渲染，单换行会被合并，所以每段之间必须空行、列表用 "- "
+function mdBody(d) {
+  const icon = { urgent: '🔴', high: '🟠', medium: '🟡', low: '⚪' };
+  const item = (t) => `- ${icon[t.priority] || '⚪'} **${t.title}**${t.end_time ? `（截止 ${hm(t.end_time)}）` : ''}`;
+
+  let s = `### ☀️ 早上好！今天是 ${d.today}（${d.weekday}）\n\n`;
+  s += `### 📌 今日三件硬事候选\n\n`;
+  s += `三选三，必须含 CACC 或硬截止：\n\n`;
+  s += `- ${d.cacc}\n`;
+  for (const p of d.picks) s += `- ${p}\n`;
+  if (!d.hasDeadline) s += `- 今日无硬截止，正常跑每日模板\n`;
+
+  if (d.hasDeadline) {
+    s += `\n### ⏰ 今日硬截止（${d.todayDeadline.length} 条）\n\n`;
+    s += d.todayDeadline.map(item).join('\n') + '\n';
+  }
+  if (d.overdue.length) {
+    s += `\n### ⚠️ 已过期未完成（${d.overdue.length} 条，尽快处理）\n\n`;
+    s += d.overdue.slice(0, 5).map(item).join('\n') + '\n';
+    if (d.overdue.length > 5) s += `- ...等 ${d.overdue.length} 条\n`;
+  }
+  s += `\n### 🔁 今日轮转（${d.weekday}）\n\n${d.rotation}\n`;
+  s += `\n---\n\n🛏 **睡前记得：写明天三件硬事（必须有 CACC 或硬截止）**\n`;
+  return s;
+}
+
+// ntfy 版：纯文本，单换行能正常显示
+function plainBody(d) {
+  const icon = { urgent: '🔴', high: '🟠', medium: '🟡', low: '⚪' };
+  const line = (t) => `${icon[t.priority] || '⚪'} ${t.title}${t.end_time ? `（截止 ${hm(t.end_time)}）` : ''}`;
+
+  let s = `☀️ 早上好！今天是 ${d.today}（${d.weekday}）\n`;
+  s += `\n📌 今日三件硬事候选（三选三，必须含 CACC 或硬截止）：\n`;
+  s += `• ${d.cacc}\n`;
+  for (const p of d.picks) s += `• ${p}\n`;
+  if (!d.hasDeadline) s += `• 今日无硬截止，正常跑每日模板\n`;
+
+  if (d.hasDeadline) {
+    s += `\n⏰ 今日硬截止（${d.todayDeadline.length} 条）：\n`;
+    s += d.todayDeadline.map(line).join('\n') + '\n';
+  }
+  if (d.overdue.length) {
+    s += `\n⚠️ 已过期未完成（${d.overdue.length} 条，尽快处理）：\n`;
+    s += d.overdue.slice(0, 5).map(line).join('\n') + (d.overdue.length > 5 ? `\n...等 ${d.overdue.length} 条` : '') + '\n';
+  }
+  s += `\n🔁 今日轮转：${d.weekday} → ${d.rotation}\n`;
+  s += `\n🛏 睡前记得：写明天三件硬事（必须有 CACC 或硬截止）`;
+  return s;
 }
 
 function weekdayRotation(w) {
